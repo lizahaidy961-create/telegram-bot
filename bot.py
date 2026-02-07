@@ -8,12 +8,12 @@ from telegram.ext import (
     ContextTypes
 )
 
+app = Flask(__name__)
+
 # ---------- CONFIGURAÇÕES ----------
 TOKEN = "8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
 VIP_GROUP_ID = -3616377094
 REDIRECT_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
-
-app = Flask(__name__)
 
 # ---------- BANCO DE DADOS ----------
 conn = sqlite3.connect("database.db", check_same_thread=False)
@@ -39,43 +39,33 @@ if "username" not in columns:
 
 # ---------- TEXTOS ----------
 TEXT = {
-    "pt": {
-        "welcome": "👋 Bem-vindo!\n\nID: {id}\nUsername: {username}\nEmail: {email}\n\n💳 Compre agora: {link}",
-        "success": "🎉 Pagamento confirmado!\nAqui está seu acesso ao grupo VIP:\n{link}"
-    },
-    "en": {
-        "welcome": "👋 Welcome!\n\nID: {id}\nUsername: {username}\nEmail: {email}\n\n💳 Purchase here: {link}",
-        "success": "🎉 Payment confirmed!\nHere is your VIP group access:\n{link}"
-    }
+    "welcome": "👋 Welcome!\n\nID: {id}\nUsername: {username}\nEmail: {email}\n\n💳 Purchase here: {link}",
+    "success": "🎉 Payment confirmed!\nHere is your VIP group access:\n{link}"
 }
-
-def get_lang(update: Update):
-    return "pt" if update.effective_user.language_code == "pt-br" else "en"
 
 # ---------- HANDLER /START ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    username = update.effective_user.username or "não disponível"
-    lang = get_lang(update)
+    username = update.effective_user.username or "not available"
 
-    # Insere ou atualiza usuário
+    # Insert or update user
     cursor.execute("""
         INSERT OR IGNORE INTO users (telegram_id, username, language)
         VALUES (?, ?, ?)
-    """, (telegram_id, username, lang))
+    """, (telegram_id, username, "en"))
     conn.commit()
 
-    # Atualiza username se necessário
+    # Update username if needed
     cursor.execute("UPDATE users SET username=? WHERE telegram_id=?", (username, telegram_id))
     conn.commit()
 
-    # Pega email se já existir
+    # Get email if it exists
     cursor.execute("SELECT email FROM users WHERE telegram_id=?", (telegram_id,))
     result = cursor.fetchone()
-    email = result[0] if result and result[0] else "✉️ a definir"
+    email = result[0] if result and result[0] else "✉️ to be defined"
 
     await update.message.reply_text(
-        TEXT[lang]["welcome"].format(
+        TEXT["welcome"].format(
             id=telegram_id,
             username=username,
             email=email,
@@ -91,14 +81,14 @@ tg_app.add_handler(CommandHandler("start", start))
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    asyncio.run(tg_app.process_update(update))  # loop temporário
+    asyncio.run(tg_app.process_update(update))  # temporary loop
     return "ok"
 
 # ---------- WEBHOOK PAGAMENTO ----------
 @app.route("/webhook", methods=["POST"])
 def payment_webhook():
     data = request.json
-    print("Webhook recebido:", data)
+    print("Webhook received:", data)
 
     email = None
 
@@ -115,13 +105,13 @@ def payment_webhook():
     if not email:
         return "ignored"
 
-    # Procura usuário pelo email
-    cursor.execute("SELECT telegram_id, language FROM users WHERE email=?", (email,))
+    # Find user by email
+    cursor.execute("SELECT telegram_id FROM users WHERE email=?", (email,))
     user = cursor.fetchone()
     if not user:
         return "user not found"
 
-    telegram_id, lang = user
+    telegram_id = user[0]
 
     async def send_invite():
         invite = await tg_app.bot.create_chat_invite_link(
@@ -130,12 +120,12 @@ def payment_webhook():
         )
         await tg_app.bot.send_message(
             chat_id=telegram_id,
-            text=TEXT[lang]["success"].format(link=invite.invite_link)
+            text=TEXT["success"].format(link=invite.invite_link)
         )
 
     asyncio.run(send_invite())
 
-    # Marca como pago
+    # Mark as paid
     cursor.execute("UPDATE users SET paid=1 WHERE telegram_id=?", (telegram_id,))
     conn.commit()
 
@@ -143,6 +133,6 @@ def payment_webhook():
 
 # ---------- RUN ----------
 if __name__ == "__main__":
-    # Inicializa bot de forma correta sem warnings
+    # Initialize bot correctly without warnings
     asyncio.run(tg_app.initialize())
     app.run(host="0.0.0.0", port=5000)
