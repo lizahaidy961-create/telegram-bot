@@ -72,7 +72,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Pega email se já existir
     cursor.execute("SELECT email FROM users WHERE telegram_id=?", (telegram_id,))
     result = cursor.fetchone()
-    email = result[0] if result and result[0] else "a definir"
+    email = result[0] if result and result[0] else "✉️ a definir"
 
     await update.message.reply_text(
         TEXT[lang]["welcome"].format(
@@ -91,9 +91,7 @@ tg_app.add_handler(CommandHandler("start", start))
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), tg_app.bot)
-
-    # Usando loop temporário para processar update
-    asyncio.run(tg_app.process_update(update))
+    asyncio.run(tg_app.process_update(update))  # loop temporário
     return "ok"
 
 # ---------- WEBHOOK PAGAMENTO ----------
@@ -145,6 +143,6 @@ def payment_webhook():
 
 # ---------- RUN ----------
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(tg_app.initialize())
+    # Inicializa bot de forma correta sem warnings
+    asyncio.run(tg_app.initialize())
     app.run(host="0.0.0.0", port=5000)
