@@ -79,8 +79,7 @@ tg_app.add_handler(CommandHandler("start", start))
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    # Evita problemas de loop fechado
-    asyncio.create_task(tg_app.process_update(update))
+    asyncio.run(tg_app.process_update(update))  # roda dentro de um loop temporário
     return "ok"
 
 # ---------- WEBHOOK PAGAMENTO ----------
