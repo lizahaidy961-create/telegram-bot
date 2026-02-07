@@ -8,13 +8,14 @@ from telegram.ext import (
     ContextTypes
 )
 
+# ---------- CONFIGURAÇÕES ----------
 TOKEN = "8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
 VIP_GROUP_ID = -3616377094
 REDIRECT_LINK = "https://redirecionamento-iota.vercel.app"
 
 app = Flask(__name__)
 
-# ---------- BANCO ----------
+# ---------- BANCO DE DADOS ----------
 conn = sqlite3.connect("database.db", check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute("""
@@ -56,7 +57,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, (telegram_id, username, lang))
     conn.commit()
 
-    # Recupera email se já estiver pago
+    # Recupera email se já estiver cadastrado
     cursor.execute("SELECT email FROM users WHERE telegram_id=?", (telegram_id,))
     result = cursor.fetchone()
     email = result[0] if result and result[0] else "a definir"
@@ -78,7 +79,8 @@ tg_app.add_handler(CommandHandler("start", start))
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    asyncio.run(tg_app.process_update(update))
+    # Evita problemas de loop fechado
+    asyncio.create_task(tg_app.process_update(update))
     return "ok"
 
 # ---------- WEBHOOK PAGAMENTO ----------
@@ -121,7 +123,7 @@ def payment_webhook():
             text=TEXT[lang]["success"].format(link=invite.invite_link)
         )
 
-    asyncio.run(send_invite())
+    asyncio.create_task(send_invite())
 
     # Marca como pago
     cursor.execute("UPDATE users SET paid=1 WHERE telegram_id=?", (telegram_id,))
@@ -131,5 +133,7 @@ def payment_webhook():
 
 # ---------- RUN ----------
 if __name__ == "__main__":
-    asyncio.run(tg_app.initialize())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(tg_app.initialize())
+    # Servidor Flask
     app.run(host="0.0.0.0", port=5000)
