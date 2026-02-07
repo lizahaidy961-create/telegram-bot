@@ -18,16 +18,24 @@ app = Flask(__name__)
 # ---------- BANCO DE DADOS ----------
 conn = sqlite3.connect("database.db", check_same_thread=False)
 cursor = conn.cursor()
+
+# Cria tabela se não existir
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
-    username TEXT,
     email TEXT,
     language TEXT,
     paid INTEGER DEFAULT 0
 )
 """)
 conn.commit()
+
+# Adiciona coluna username se não existir
+cursor.execute("PRAGMA table_info(users)")
+columns = [col[1] for col in cursor.fetchall()]
+if "username" not in columns:
+    cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
+    conn.commit()
 
 # ---------- TEXTOS ----------
 TEXT = {
@@ -50,14 +58,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or "não disponível"
     lang = get_lang(update)
 
-    # Insere ou atualiza o usuário no banco
+    # Insere ou atualiza usuário
     cursor.execute("""
         INSERT OR IGNORE INTO users (telegram_id, username, language)
         VALUES (?, ?, ?)
     """, (telegram_id, username, lang))
     conn.commit()
 
-    # Recupera email se já estiver cadastrado
+    # Atualiza username se necessário
+    cursor.execute("UPDATE users SET username=? WHERE telegram_id=?", (username, telegram_id))
+    conn.commit()
+
+    # Pega email se já existir
     cursor.execute("SELECT email FROM users WHERE telegram_id=?", (telegram_id,))
     result = cursor.fetchone()
     email = result[0] if result and result[0] else "a definir"
@@ -79,7 +91,9 @@ tg_app.add_handler(CommandHandler("start", start))
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    asyncio.run(tg_app.process_update(update))  # roda dentro de um loop temporário
+
+    # Usando loop temporário para processar update
+    asyncio.run(tg_app.process_update(update))
     return "ok"
 
 # ---------- WEBHOOK PAGAMENTO ----------
@@ -103,10 +117,9 @@ def payment_webhook():
     if not email:
         return "ignored"
 
-    # Procura o usuário pelo email
+    # Procura usuário pelo email
     cursor.execute("SELECT telegram_id, language FROM users WHERE email=?", (email,))
     user = cursor.fetchone()
-
     if not user:
         return "user not found"
 
@@ -122,7 +135,7 @@ def payment_webhook():
             text=TEXT[lang]["success"].format(link=invite.invite_link)
         )
 
-    asyncio.create_task(send_invite())
+    asyncio.run(send_invite())
 
     # Marca como pago
     cursor.execute("UPDATE users SET paid=1 WHERE telegram_id=?", (telegram_id,))
@@ -134,5 +147,4 @@ def payment_webhook():
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.run_until_complete(tg_app.initialize())
-    # Servidor Flask
     app.run(host="0.0.0.0", port=5000)
