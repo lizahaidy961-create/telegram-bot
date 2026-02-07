@@ -11,7 +11,7 @@ from telegram.ext import (
 # ---------- CONFIGURAÇÕES ----------
 TOKEN = "8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
 VIP_GROUP_ID = -3616377094
-REDIRECT_LINK = "https://redirecionamento-iota.vercel.app"
+REDIRECT_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
 
 app = Flask(__name__)
 
