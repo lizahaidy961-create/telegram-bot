@@ -2,7 +2,11 @@ import sqlite3
 import asyncio
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes
+)
 
 # ---------- CONFIGURAÇÕES ----------
 TOKEN = "8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
@@ -15,6 +19,7 @@ app = Flask(__name__)
 # ---------- BANCO DE DADOS ----------
 conn = sqlite3.connect("database.db", check_same_thread=False)
 cursor = conn.cursor()
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
@@ -48,26 +53,44 @@ TEXT = {
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
     username = update.effective_user.username or "not_available"
+
     cursor.execute(
         "INSERT OR IGNORE INTO users (telegram_id, username) VALUES (?, ?)",
         (telegram_id, username)
     )
     conn.commit()
+
     await update.message.reply_text(
-        TEXT["welcome"].format(id=telegram_id, link=GUMROAD_LINK)
+        TEXT["welcome"].format(
+            id=telegram_id,
+            link=GUMROAD_LINK
+        )
     )
 
 # ---------- /VIP ----------
 async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    cursor.execute("SELECT paid FROM users WHERE telegram_id=?", (telegram_id,))
+
+    cursor.execute(
+        "SELECT paid FROM users WHERE telegram_id=?",
+        (telegram_id,)
+    )
     row = cursor.fetchone()
+
     if not row or row[0] != 1:
-        await update.message.reply_text(TEXT["not_paid"].format(link=GUMROAD_LINK))
+        await update.message.reply_text(
+            TEXT["not_paid"].format(link=GUMROAD_LINK)
+        )
         return
 
-    invite = await context.bot.create_chat_invite_link(chat_id=VIP_GROUP_ID, member_limit=1)
-    await update.message.reply_text(TEXT["success"].format(link=invite.invite_link))
+    invite = await context.bot.create_chat_invite_link(
+        chat_id=VIP_GROUP_ID,
+        member_limit=1
+    )
+
+    await update.message.reply_text(
+        TEXT["success"].format(link=invite.invite_link)
+    )
 
 # ---------- TELEGRAM APP ----------
 tg_app = Application.builder().token(TOKEN).build()
@@ -78,36 +101,39 @@ tg_app.add_handler(CommandHandler("vip", vip))
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    # envia a coroutine para o loop do bot em outro thread
-    asyncio.run_coroutine_threadsafe(tg_app.process_update(update), tg_app.bot.loop)
+    asyncio.run(tg_app.process_update(update))
     return "ok"
 
 # ---------- WEBHOOK GUMROAD ----------
 @app.route("/webhook", methods=["POST"])
 def gumroad_webhook():
-    data = request.form  # Gumroad envia x-www-form-urlencoded
-    telegram_id = data.get("custom_fields[Telegram ID]")
+    data = request.json
+    print("Gumroad webhook:", data)
+
+    if data.get("event") != "sale":
+        return "ignored"
+
+    custom_fields = data.get("custom_fields", {})
+    telegram_id = custom_fields.get("Telegram ID")
 
     if not telegram_id:
-        return "telegram id missing", 400
+        return "telegram id missing"
 
     telegram_id = int(telegram_id)
+
     cursor.execute(
-        "INSERT OR IGNORE INTO users (telegram_id, paid) VALUES (?, 1)", (telegram_id,)
+        "INSERT OR IGNORE INTO users (telegram_id, paid) VALUES (?, 1)",
+        (telegram_id,)
     )
-    cursor.execute("UPDATE users SET paid=1 WHERE telegram_id=?", (telegram_id,))
+    cursor.execute(
+        "UPDATE users SET paid=1 WHERE telegram_id=?",
+        (telegram_id,)
+    )
     conn.commit()
 
-    # envia link de convite em async
-    async def send_invite():
-        invite = await tg_app.bot.create_chat_invite_link(chat_id=VIP_GROUP_ID, member_limit=1)
-        await tg_app.bot.send_message(chat_id=telegram_id, text=TEXT["success"].format(link=invite.invite_link))
-
-    asyncio.run_coroutine_threadsafe(send_invite(), tg_app.bot.loop)
     return "ok"
 
 # ---------- RUN ----------
 if __name__ == "__main__":
     asyncio.run(tg_app.initialize())
     app.run(host="0.0.0.0", port=5000)
-s
