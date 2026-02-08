@@ -9,7 +9,7 @@ from telegram.ext import (
 )
 
 # ---------- CONFIGURAÇÕES ----------
-TOKEN = "SEU_TOKEN_AQUI"
+TOKEN = "8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
 VIP_GROUP_ID = -3616377094
 GUMROAD_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
 
