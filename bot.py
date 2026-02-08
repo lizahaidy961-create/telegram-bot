@@ -36,10 +36,15 @@ TEXT = {
         "🆔 Your Telegram ID:\n"
         "{id}\n\n"
         "📌 Copy and paste this ID on Gumroad checkout.\n\n"
-        "💳 Purchase here:\n{link}"
+        "💳 Purchase here:\n{link}\n\n"
+        "After payment, return here and type /vip"
+    ),
+    "not_paid": (
+        "❌ No payment found.\n\n"
+        "Please complete your purchase first:\n{link}"
     ),
     "success": (
-        "🎉 Payment confirmed!\n\n"
+        "🎉 Access granted!\n\n"
         "Here is your VIP group access:\n{link}"
     )
 }
@@ -62,9 +67,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     )
 
+# ---------- /VIP ----------
+async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = update.effective_user.id
+
+    cursor.execute(
+        "SELECT paid FROM users WHERE telegram_id=?",
+        (telegram_id,)
+    )
+    row = cursor.fetchone()
+
+    if not row or row[0] != 1:
+        await update.message.reply_text(
+            TEXT["not_paid"].format(link=GUMROAD_LINK)
+        )
+        return
+
+    invite = await context.bot.create_chat_invite_link(
+        chat_id=VIP_GROUP_ID,
+        member_limit=1
+    )
+
+    await update.message.reply_text(
+        TEXT["success"].format(link=invite.invite_link)
+    )
+
 # ---------- TELEGRAM APP ----------
 tg_app = Application.builder().token(TOKEN).build()
 tg_app.add_handler(CommandHandler("start", start))
+tg_app.add_handler(CommandHandler("vip", vip))
 
 # ---------- WEBHOOK TELEGRAM ----------
 @app.route(f"/{TOKEN}", methods=["POST"])
@@ -89,27 +120,6 @@ def gumroad_webhook():
         return "telegram id missing"
 
     telegram_id = int(telegram_id)
-
-    # Verifica se já foi pago (anti-duplicação)
-    cursor.execute(
-        "SELECT paid FROM users WHERE telegram_id=?",
-        (telegram_id,)
-    )
-    row = cursor.fetchone()
-    if row and row[0] == 1:
-        return "already processed"
-
-    async def send_invite():
-        invite = await tg_app.bot.create_chat_invite_link(
-            chat_id=VIP_GROUP_ID,
-            member_limit=1
-        )
-        await tg_app.bot.send_message(
-            chat_id=telegram_id,
-            text=TEXT["success"].format(link=invite.invite_link)
-        )
-
-    asyncio.run(send_invite())
 
     cursor.execute(
         "INSERT OR IGNORE INTO users (telegram_id, paid) VALUES (?, 1)",
