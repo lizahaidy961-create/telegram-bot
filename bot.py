@@ -8,68 +8,57 @@ from telegram.ext import (
     ContextTypes
 )
 
-app = Flask(__name__)
-
 # ---------- CONFIGURAÇÕES ----------
-TOKEN = "8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
+TOKEN = "SEU_TOKEN_AQUI"
 VIP_GROUP_ID = -3616377094
-REDIRECT_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
+GUMROAD_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
+
+# ---------- FLASK ----------
+app = Flask(__name__)
 
 # ---------- BANCO DE DADOS ----------
 conn = sqlite3.connect("database.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# Cria tabela se não existir
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
-    email TEXT,
-    language TEXT,
+    username TEXT,
     paid INTEGER DEFAULT 0
 )
 """)
 conn.commit()
 
-# Adiciona coluna username se não existir
-cursor.execute("PRAGMA table_info(users)")
-columns = [col[1] for col in cursor.fetchall()]
-if "username" not in columns:
-    cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
-    conn.commit()
-
 # ---------- TEXTOS ----------
 TEXT = {
-    "welcome": "👋 Welcome!\n\nID: {id}\nUsername: {username}\nEmail: {email}\n\n💳 Purchase here: {link}",
-    "success": "🎉 Payment confirmed!\nHere is your VIP group access:\n{link}"
+    "welcome": (
+        "👋 Welcome!\n\n"
+        "🆔 Your Telegram ID:\n"
+        "{id}\n\n"
+        "📌 Copy and paste this ID on Gumroad checkout.\n\n"
+        "💳 Purchase here:\n{link}"
+    ),
+    "success": (
+        "🎉 Payment confirmed!\n\n"
+        "Here is your VIP group access:\n{link}"
+    )
 }
 
-# ---------- HANDLER /START ----------
+# ---------- /START ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = update.effective_user.id
-    username = update.effective_user.username or "not available"
+    username = update.effective_user.username or "not_available"
 
-    # Insert or update user
-    cursor.execute("""
-        INSERT OR IGNORE INTO users (telegram_id, username, language)
-        VALUES (?, ?, ?)
-    """, (telegram_id, username, "en"))
+    cursor.execute(
+        "INSERT OR IGNORE INTO users (telegram_id, username) VALUES (?, ?)",
+        (telegram_id, username)
+    )
     conn.commit()
-
-    # Update username if needed
-    cursor.execute("UPDATE users SET username=? WHERE telegram_id=?", (username, telegram_id))
-    conn.commit()
-
-    # Get email if it exists
-    cursor.execute("SELECT email FROM users WHERE telegram_id=?", (telegram_id,))
-    result = cursor.fetchone()
-    email = result[0] if result and result[0] else "✉️ to be defined"
 
     await update.message.reply_text(
         TEXT["welcome"].format(
             id=telegram_id,
-            username=username,
-            email=email,
-            link=REDIRECT_LINK
+            link=GUMROAD_LINK
         )
     )
 
@@ -81,37 +70,34 @@ tg_app.add_handler(CommandHandler("start", start))
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    asyncio.run(tg_app.process_update(update))  # temporary loop
+    asyncio.run(tg_app.process_update(update))
     return "ok"
 
-# ---------- WEBHOOK PAGAMENTO ----------
+# ---------- WEBHOOK GUMROAD ----------
 @app.route("/webhook", methods=["POST"])
-def payment_webhook():
+def gumroad_webhook():
     data = request.json
-    print("Webhook received:", data)
+    print("Gumroad webhook:", data)
 
-    email = None
-
-    # Kiwify
-    if "customer" in data:
-        email = data["customer"].get("email")
-        if data.get("status") != "paid":
-            return "ignored"
-
-    # Gumroad
-    if data.get("event") == "sale":
-        email = data.get("email")
-
-    if not email:
+    if data.get("event") != "sale":
         return "ignored"
 
-    # Find user by email
-    cursor.execute("SELECT telegram_id FROM users WHERE email=?", (email,))
-    user = cursor.fetchone()
-    if not user:
-        return "user not found"
+    custom_fields = data.get("custom_fields", {})
+    telegram_id = custom_fields.get("Telegram ID")
 
-    telegram_id = user[0]
+    if not telegram_id:
+        return "telegram id missing"
+
+    telegram_id = int(telegram_id)
+
+    # Verifica se já foi pago (anti-duplicação)
+    cursor.execute(
+        "SELECT paid FROM users WHERE telegram_id=?",
+        (telegram_id,)
+    )
+    row = cursor.fetchone()
+    if row and row[0] == 1:
+        return "already processed"
 
     async def send_invite():
         invite = await tg_app.bot.create_chat_invite_link(
@@ -125,14 +111,19 @@ def payment_webhook():
 
     asyncio.run(send_invite())
 
-    # Mark as paid
-    cursor.execute("UPDATE users SET paid=1 WHERE telegram_id=?", (telegram_id,))
+    cursor.execute(
+        "INSERT OR IGNORE INTO users (telegram_id, paid) VALUES (?, 1)",
+        (telegram_id,)
+    )
+    cursor.execute(
+        "UPDATE users SET paid=1 WHERE telegram_id=?",
+        (telegram_id,)
+    )
     conn.commit()
 
     return "ok"
 
 # ---------- RUN ----------
 if __name__ == "__main__":
-    # Initialize bot correctly without warnings
     asyncio.run(tg_app.initialize())
     app.run(host="0.0.0.0", port=5000)
