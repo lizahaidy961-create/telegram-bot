@@ -1,5 +1,6 @@
 import sqlite3
 import asyncio
+import threading
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -12,14 +13,9 @@ GUMROAD_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
 # ---------- FLASK ----------
 app = Flask(__name__)
 
-# ---------- EVENT LOOP GLOBAL ----------
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
 # ---------- DATABASE ----------
 conn = sqlite3.connect("database.db", check_same_thread=False)
 cursor = conn.cursor()
-
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
@@ -64,10 +60,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tid = update.effective_user.id
 
-    cursor.execute(
-        "SELECT paid FROM users WHERE telegram_id=?",
-        (tid,)
-    )
+    cursor.execute("SELECT paid FROM users WHERE telegram_id=?", (tid,))
     row = cursor.fetchone()
 
     if not row or row[0] != 1:
@@ -88,11 +81,25 @@ async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 tg_app.add_handler(CommandHandler("start", start))
 tg_app.add_handler(CommandHandler("vip", vip))
 
+# ---------- EVENT LOOP (THREAD SEPARADA) ----------
+loop = asyncio.new_event_loop()
+
+def run_bot():
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(tg_app.initialize())
+    loop.run_until_complete(tg_app.start())
+    loop.run_forever()
+
+threading.Thread(target=run_bot, daemon=True).start()
+
 # ---------- TELEGRAM WEBHOOK ----------
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    loop.create_task(tg_app.process_update(update))
+    asyncio.run_coroutine_threadsafe(
+        tg_app.process_update(update),
+        loop
+    )
     return "ok"
 
 # ---------- GUMROAD WEBHOOK ----------
@@ -101,12 +108,9 @@ def gumroad_webhook():
     data = request.form.to_dict()
     print("Gumroad:", data)
 
-    if data.get("event") != "sale":
-        return "ignored"
-
-    telegram_id = data.get("Telegram ID") or data.get("telegram_id")
+    telegram_id = data.get("custom_fields[Telegram ID]")
     if not telegram_id:
-        return "missing telegram id"
+        return "missing telegram id", 400
 
     cursor.execute(
         "UPDATE users SET paid=1 WHERE telegram_id=?",
@@ -116,7 +120,6 @@ def gumroad_webhook():
 
     return "ok"
 
-# ---------- RUN ----------
+# ---------- RUN FLASK ----------
 if __name__ == "__main__":
-    loop.run_until_complete(tg_app.initialize())
     app.run(host="0.0.0.0", port=5000)
