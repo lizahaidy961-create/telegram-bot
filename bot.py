@@ -101,26 +101,24 @@ tg_app.add_handler(CommandHandler("vip", vip))
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    asyncio.run(tg_app.process_update(update))
+    tg_app.create_task(tg_app.process_update(update))  # usa create_task para não fechar o loop
     return "ok"
 
 # ---------- WEBHOOK GUMROAD ----------
 @app.route("/webhook", methods=["POST"])
 def gumroad_webhook():
-    data = request.json
+    data = request.form  # importante: Gumroad envia x-www-form-urlencoded
     print("Gumroad webhook:", data)
 
-    if data.get("event") != "sale":
-        return "ignored"
-
-    custom_fields = data.get("custom_fields", {})
-    telegram_id = custom_fields.get("Telegram ID")
+    # O Ping do Gumroad não envia 'event' por padrão, então assumimos que toda requisição é venda
+    telegram_id = data.get("custom_fields[Telegram ID]")
 
     if not telegram_id:
-        return "telegram id missing"
+        return "telegram id missing", 400
 
     telegram_id = int(telegram_id)
 
+    # Atualiza banco
     cursor.execute(
         "INSERT OR IGNORE INTO users (telegram_id, paid) VALUES (?, 1)",
         (telegram_id,)
@@ -130,6 +128,19 @@ def gumroad_webhook():
         (telegram_id,)
     )
     conn.commit()
+
+    # Envia convite para Telegram
+    async def send_invite():
+        invite = await tg_app.bot.create_chat_invite_link(
+            chat_id=VIP_GROUP_ID,
+            member_limit=1
+        )
+        await tg_app.bot.send_message(
+            chat_id=telegram_id,
+            text=TEXT["success"].format(link=invite.invite_link)
+        )
+
+    tg_app.create_task(send_invite())
 
     return "ok"
 
