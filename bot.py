@@ -7,7 +7,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 # ---------- CONFIG ----------
 TOKEN = "8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
-VIP_GROUP_ID = -3616377094
+VIP_GROUP_ID = -1003723951596
 GUMROAD_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
 
 # ---------- FLASK ----------
