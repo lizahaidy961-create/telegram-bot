@@ -78,8 +78,16 @@ async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
         TEXT["success"].format(link=invite.invite_link)
     )
 
+# ---------- /ID ----------
+async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    await update.message.reply_text(
+        f"📌 Chat ID:\n{chat.id}\n\nTipo: {chat.type}"
+    )
+
 tg_app.add_handler(CommandHandler("start", start))
 tg_app.add_handler(CommandHandler("vip", vip))
+tg_app.add_handler(CommandHandler("id", get_id))
 
 # ---------- EVENT LOOP (THREAD SEPARADA) ----------
 loop = asyncio.new_event_loop()
