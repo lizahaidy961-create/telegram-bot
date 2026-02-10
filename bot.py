@@ -1,7 +1,7 @@
 import sqlite3
 import asyncio
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -63,7 +63,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- /VIP ----------
 async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tid = update.effective_user.id
-    now = int(datetime.utcnow().timestamp())
+    now = int(datetime.now(timezone.utc).timestamp())
 
     cursor.execute("""
     SELECT paid, invite_sent, invite_link, expires_at
@@ -116,7 +116,8 @@ async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- /STATUS ----------
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tid = update.effective_user.id
-    now = datetime.utcnow().timestamp()
+    now = datetime.now(timezone.utc).timestamp()
+
 
     cursor.execute("""
     SELECT paid, expires_at
@@ -193,7 +194,10 @@ def gumroad_webhook():
         return "missing telegram id", 400
 
     # Set expiration: 30 days from now
-    expires_at = int((datetime.utcnow() + timedelta(days=30)).timestamp())
+    expires_at = int(
+    (datetime.now(timezone.utc) + timedelta(days=30)).timestamp()
+)
+
 
     cursor.execute(
         "UPDATE users SET paid=1, expires_at=? WHERE telegram_id=?",
