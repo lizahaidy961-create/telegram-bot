@@ -1,6 +1,7 @@
 import sqlite3
 import asyncio
 import threading
+from datetime import datetime, timedelta
 from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -20,7 +21,10 @@ cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
     telegram_id INTEGER PRIMARY KEY,
     username TEXT,
-    paid INTEGER DEFAULT 0
+    paid INTEGER DEFAULT 0,
+    invite_sent INTEGER DEFAULT 0,
+    invite_link TEXT,
+    expires_at INTEGER
 )
 """)
 conn.commit()
@@ -59,34 +63,102 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- /VIP ----------
 async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tid = update.effective_user.id
+    now = int(datetime.utcnow().timestamp())
 
-    cursor.execute("SELECT paid FROM users WHERE telegram_id=?", (tid,))
+    cursor.execute("""
+    SELECT paid, invite_sent, invite_link, expires_at
+    FROM users
+    WHERE telegram_id=?
+    """, (tid,))
     row = cursor.fetchone()
 
+    # User hasn't paid or doesn't exist
     if not row or row[0] != 1:
         await update.message.reply_text(
             TEXT["not_paid"].format(link=GUMROAD_LINK)
         )
         return
 
+    paid, invite_sent, invite_link, expires_at = row
+
+    # Access expired
+    if expires_at is not None and expires_at < now:
+        await update.message.reply_text("⏰ Your access has expired.")
+        return
+
+    # Already has link → resend the same
+    if invite_sent == 1 and invite_link:
+        await update.message.reply_text(
+            f"✅ Your access link:\n{invite_link}"
+        )
+        return
+
+    # Create a unique invite link
     invite = await context.bot.create_chat_invite_link(
         chat_id=VIP_GROUP_ID,
-        member_limit=1
+        member_limit=1,
+        expire_date=expires_at
     )
 
+    # Save in database
+    cursor.execute("""
+    UPDATE users
+    SET invite_sent=1,
+        invite_link=?
+    WHERE telegram_id=?
+    """, (invite.invite_link, tid))
+    conn.commit()
+
     await update.message.reply_text(
-        TEXT["success"].format(link=invite.invite_link)
+        f"🎉 Access granted!\n{invite.invite_link}"
+    )
+
+# ---------- /STATUS ----------
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tid = update.effective_user.id
+    now = datetime.utcnow().timestamp()
+
+    cursor.execute("""
+    SELECT paid, expires_at
+    FROM users
+    WHERE telegram_id=?
+    """, (tid,))
+    row = cursor.fetchone()
+
+    if not row or row[0] != 1:
+        await update.message.reply_text("❌ You do not have an active subscription.")
+        return
+
+    paid, expires_at = row
+
+    if expires_at is not None and expires_at < now:
+        expired_date = datetime.utcfromtimestamp(expires_at).strftime("%d/%m/%Y")
+        await update.message.reply_text(f"⛔ Your access expired on {expired_date}.\nUse /start to renew.")
+        return
+
+    if expires_at is not None:
+        expire_str = datetime.utcfromtimestamp(expires_at).strftime("%d/%m/%Y")
+    else:
+        expire_str = "Lifetime"
+
+    await update.message.reply_text(
+        f"📊 Your subscription status:\n\n"
+        f"✅ Payment: confirmed\n"
+        f"📅 Valid until: {expire_str}\n"
+        f"🔓 Access: active"
     )
 
 # ---------- /ID ----------
 async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
     await update.message.reply_text(
-        f"📌 Chat ID:\n{chat.id}\n\nTipo: {chat.type}"
+        f"📌 Chat ID:\n{chat.id}\n\nType: {chat.type}"
     )
 
+# ---------- HANDLERS ----------
 tg_app.add_handler(CommandHandler("start", start))
 tg_app.add_handler(CommandHandler("vip", vip))
+tg_app.add_handler(CommandHandler("status", status))
 tg_app.add_handler(CommandHandler("id", get_id))
 
 # ---------- EVENT LOOP (THREAD SEPARADA) ----------
@@ -120,9 +192,12 @@ def gumroad_webhook():
     if not telegram_id:
         return "missing telegram id", 400
 
+    # Set expiration: 30 days from now
+    expires_at = int((datetime.utcnow() + timedelta(days=30)).timestamp())
+
     cursor.execute(
-        "UPDATE users SET paid=1 WHERE telegram_id=?",
-        (int(telegram_id),)
+        "UPDATE users SET paid=1, expires_at=? WHERE telegram_id=?",
+        (expires_at, int(telegram_id))
     )
     conn.commit()
 
