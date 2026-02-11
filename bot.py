@@ -3,11 +3,11 @@ import asyncio
 import threading
 from datetime import datetime, timedelta, timezone
 from flask import Flask, request
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # ---------- CONFIG ----------
-TOKEN = "8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
+TOKEN = "8533380179:AAFtg4S8UKwx-lLGs8xS8SxjdVo_4cfp6oE"
 VIP_GROUP_ID = -1003723951596
 GUMROAD_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
 
@@ -56,9 +56,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     conn.commit()
 
+    keyboard = [
+        [InlineKeyboardButton("🔥 Unlock My VIP 🔥", url=GUMROAD_LINK)]
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
     await update.message.reply_text(
-        TEXT["welcome"].format(tid=tid, link=GUMROAD_LINK)
+        f"Hey you… 😈\n\n"
+        f"Ready to see what I don’t post anywhere else?\n\n"
+        f"💋 Exclusive +18 content\n"
+        f"💦 Private videos\n"
+        f"🔥 VIP-only surprises\n\n"
+        f"🆔 Your ID: {tid}\n"
+        f"(Paste this at checkout)\n\n"
+        f"After payment, come back and type /vip to enter my private world… 💕",
+        reply_markup=reply_markup
     )
+
 
 # ---------- /VIP ----------
 async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -73,11 +88,18 @@ async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     row = cursor.fetchone()
 
     # User hasn't paid or doesn't exist
-    if not row or row[0] != 1:
-        await update.message.reply_text(
-            TEXT["not_paid"].format(link=GUMROAD_LINK)
-        )
-        return
+if not row or row[0] != 1:
+    keyboard = [
+        [InlineKeyboardButton("💳 Unlock Access", url=GUMROAD_LINK)]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "😈 You don’t have access yet...\n\n"
+        "Tap below to unlock my private VIP content 🔥",
+        reply_markup=reply_markup
+    )
+    return
 
     paid, invite_sent, invite_link, expires_at = row
 
@@ -110,8 +132,12 @@ async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
 
     await update.message.reply_text(
-        f"🎉 Access granted!\n{invite.invite_link}"
-    )
+    f"Good choice… 😈🔥\n\n"
+    f"Your private access is ready:\n\n"
+    f"{invite.invite_link}\n\n"
+    f"Don’t keep me waiting… 💋"
+)
+
 
 # ---------- /STATUS ----------
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
