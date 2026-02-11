@@ -1,8 +1,8 @@
 import asyncio
 from telegram import Bot
 
-TOKEN = "8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
-WEBHOOK_URL = "https://telegram-bot-nt45.onrender.com/8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
+TOKEN = "8533380179:AAFtg4S8UKwx-lLGs8xS8SxjdVo_4cfp6oE"
+WEBHOOK_URL = "https://telegram-bot-nt45.onrender.com/8533380179:AAFtg4S8UKwx-lLGs8xS8SxjdVo_4cfp6oE"
 
 
 async def main():
