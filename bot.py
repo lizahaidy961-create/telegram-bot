@@ -1,5 +1,6 @@
 import sqlite3
 import asyncio
+import os
 import threading
 from datetime import datetime, timedelta, timezone
 from flask import Flask, request
@@ -81,37 +82,40 @@ async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     now = int(datetime.now(timezone.utc).timestamp())
 
     cursor.execute("""
-    SELECT paid, invite_sent, invite_link, expires_at
-    FROM users
-    WHERE telegram_id=?
+        SELECT paid, invite_sent, invite_link, expires_at
+        FROM users
+        WHERE telegram_id=?
     """, (tid,))
     row = cursor.fetchone()
 
     # User hasn't paid or doesn't exist
-if not row or row[0] != 1:
-    keyboard = [
-        [InlineKeyboardButton("💳 Unlock Access", url=GUMROAD_LINK)]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    if not row or row[0] != 1:
+        keyboard = [
+            [InlineKeyboardButton("💳 Unlock Access", url=GUMROAD_LINK)]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        "😈 You don’t have access yet...\n\n"
-        "Tap below to unlock my private VIP content 🔥",
-        reply_markup=reply_markup
-    )
-    return
+        await update.message.reply_text(
+            "😈 You don’t have access yet...\n\n"
+            "Tap below to unlock my private VIP content 🔥",
+            reply_markup=reply_markup
+        )
+        return
 
     paid, invite_sent, invite_link, expires_at = row
 
     # Access expired
     if expires_at is not None and expires_at < now:
-        await update.message.reply_text("⏰ Your access has expired.")
+        await update.message.reply_text(
+            "⏰ Your access has expired.\n\nUse /start to renew 🔥"
+        )
         return
 
     # Already has link → resend the same
     if invite_sent == 1 and invite_link:
         await update.message.reply_text(
-            f"✅ Your access link:\n{invite_link}"
+            f"😈 Welcome back...\n\n"
+            f"Here’s your private access:\n\n{invite_link}"
         )
         return
 
@@ -124,19 +128,19 @@ if not row or row[0] != 1:
 
     # Save in database
     cursor.execute("""
-    UPDATE users
-    SET invite_sent=1,
-        invite_link=?
-    WHERE telegram_id=?
+        UPDATE users
+        SET invite_sent=1,
+            invite_link=?
+        WHERE telegram_id=?
     """, (invite.invite_link, tid))
     conn.commit()
 
     await update.message.reply_text(
-    f"Good choice… 😈🔥\n\n"
-    f"Your private access is ready:\n\n"
-    f"{invite.invite_link}\n\n"
-    f"Don’t keep me waiting… 💋"
-)
+        f"Good choice… 😈🔥\n\n"
+        f"Your private access is ready:\n\n"
+        f"{invite.invite_link}\n\n"
+        f"Don’t keep me waiting… 💋"
+    )
 
 
 # ---------- /STATUS ----------
@@ -235,4 +239,5 @@ def gumroad_webhook():
 
 # ---------- RUN FLASK ----------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
