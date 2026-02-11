@@ -33,7 +33,7 @@ conn.commit()
 # ---------- TEXT ----------
 TEXT = {
     "welcome": (
-        "👋 Welcome!\n\n"
+        "👋 Hello Welcome!\n\n"
         "🆔 Your Telegram ID:\n{tid}\n\n"
         "📌 Paste this ID in Gumroad checkout\n\n"
         "💳 Buy here:\n{link}\n\n"
