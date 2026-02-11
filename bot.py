@@ -8,7 +8,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # ---------- CONFIG ----------
-TOKEN = "8533380179:AAFtg4S8UKwx-lLGs8xS8SxjdVo_4cfp6oE"
+TOKEN = "8533380179:AAGm4C9zN_J1_C3SeMiUPr-iCv-pj3gAXhI"
 VIP_GROUP_ID = -1003723951596
 GUMROAD_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
 
@@ -238,6 +238,11 @@ def gumroad_webhook():
     return "ok"
 
 # ---------- RUN FLASK ----------
+@app.route("/")
+def home():
+    return "Bot online", 200
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
