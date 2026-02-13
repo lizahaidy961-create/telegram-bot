@@ -192,6 +192,48 @@ tg_app.add_handler(CommandHandler("vip", vip))
 tg_app.add_handler(CommandHandler("status", status))
 tg_app.add_handler(CommandHandler("id", get_id))
 
+
+# ---------- AUTO REMOVE EXPIRED USERS ----------
+async def check_expired_users():
+    while True:
+        now = int(datetime.now(timezone.utc).timestamp())
+
+        cursor.execute("""
+            SELECT telegram_id
+            FROM users
+            WHERE paid=1 AND expires_at IS NOT NULL AND expires_at < ?
+        """, (now,))
+
+        expired_users = cursor.fetchall()
+
+        for (telegram_id,) in expired_users:
+            try:
+                # Banir
+                await tg_app.bot.ban_chat_member(VIP_GROUP_ID, telegram_id)
+                # Desbanir (para permitir comprar novamente)
+                await tg_app.bot.unban_chat_member(VIP_GROUP_ID, telegram_id)
+
+                # Resetar status no banco
+                cursor.execute("""
+                    UPDATE users
+                    SET paid=0,
+                        invite_sent=0,
+                        invite_link=NULL
+                    WHERE telegram_id=?
+                """, (telegram_id,))
+                conn.commit()
+
+                print(f"Removed expired user: {telegram_id}")
+
+            except Exception as e:
+                print("Error removing user:", e)
+
+        await asyncio.sleep(3600)  # verifica a cada 1 hora
+
+
+
+
+
 # ---------- EVENT LOOP (THREAD SEPARADA) ----------
 loop = asyncio.new_event_loop()
 
@@ -199,6 +241,8 @@ def run_bot():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(tg_app.initialize())
     loop.run_until_complete(tg_app.start())
+    loop.create_task(check_expired_users())
+    
     loop.run_forever()
 
 threading.Thread(target=run_bot, daemon=True).start()
@@ -229,10 +273,15 @@ def gumroad_webhook():
 )
 
 
-    cursor.execute(
-        "UPDATE users SET paid=1, expires_at=? WHERE telegram_id=?",
-        (expires_at, int(telegram_id))
-    )
+    cursor.execute("""
+    UPDATE users 
+    SET paid=1, 
+        expires_at=?, 
+        invite_sent=0, 
+        invite_link=NULL
+    WHERE telegram_id=?
+""", (expires_at, int(telegram_id)))
+
     conn.commit()
 
     return "ok"
