@@ -269,7 +269,7 @@ def gumroad_webhook():
 
     # Set expiration: 30 days from now
     expires_at = int(
-    (datetime.now(timezone.utc) + timedelta(days=30)).timestamp()
+    (datetime.now(timezone.utc) + timedelta(days=1)).timestamp()
 )
 
 
