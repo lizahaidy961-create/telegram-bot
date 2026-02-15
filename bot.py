@@ -76,7 +76,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         f"Hey you… 😈\n\n"
-        f"Ready to see what I don’t post anywhere else?\n\n"
+        f"Ready to see what I don't post anywhere else?\n\n"
         f"💋 Exclusive +18 content\n"
         f"💦 Private videos\n"
         f"🔥 VIP-only surprises\n\n"
@@ -228,8 +228,10 @@ async def check_expired(context: ContextTypes.DEFAULT_TYPE):
             cursor.execute("""
                 UPDATE users
                 SET paid=0,
-                    invite_sent=0,
-                    invite_link=NULL
+                invite_sent=0,
+                invite_link=NULL,
+                expires_at=NULL
+
                 WHERE telegram_id=%s
             """, (telegram_id,))
 
