@@ -207,46 +207,36 @@ tg_app.add_handler(CommandHandler("id", get_id))
 
 
 # ---------- AUTO REMOVE EXPIRED USERS ----------
-async def check_expired_users():
-    while True:
-        now = int(datetime.now(timezone.utc).timestamp())
+async def check_expired(context: ContextTypes.DEFAULT_TYPE):
+    now = int(datetime.now(timezone.utc).timestamp())
 
-        cursor.execute("""
-            SELECT telegram_id
-            FROM users
-            WHERE paid=1 AND expires_at IS NOT NULL AND expires_at < %s
+    cursor.execute("""
+        SELECT telegram_id
+        FROM users
+        WHERE paid=1
+        AND expires_at IS NOT NULL
+        AND expires_at < %s
+    """, (now,))
 
-        """, (now,))
+    expired_users = cursor.fetchall()
 
-        expired_users = cursor.fetchall()
+    for (telegram_id,) in expired_users:
+        try:
+            await context.bot.ban_chat_member(VIP_GROUP_ID, telegram_id)
+            await context.bot.unban_chat_member(VIP_GROUP_ID, telegram_id)
 
-        for (telegram_id,) in expired_users:
-            try:
-                # Banir
-                await tg_app.bot.ban_chat_member(VIP_GROUP_ID, telegram_id)
-                # Desbanir (para permitir comprar novamente)
-                await tg_app.bot.unban_chat_member(VIP_GROUP_ID, telegram_id)
+            cursor.execute("""
+                UPDATE users
+                SET paid=0,
+                    invite_sent=0,
+                    invite_link=NULL
+                WHERE telegram_id=%s
+            """, (telegram_id,))
 
-                # Resetar status no banco
-                cursor.execute("""
-                    UPDATE users
-                    SET paid=0,
-                        invite_sent=0,
-                        invite_link=NULL
-                    WHERE telegram_id=%s
+            print(f"Removed expired user: {telegram_id}")
 
-                """, (telegram_id,))
-                conn.commit()
-
-                print(f"Removed expired user: {telegram_id}")
-
-            except Exception as e:
-                print("Error removing user:", e)
-
-        await asyncio.sleep(3600)  # verifica a cada 1 hora
-
-
-
+        except Exception as e:
+            print("Error removing user:", e)
 
 
 # ---------- EVENT LOOP (THREAD SEPARADA) ----------
@@ -256,7 +246,12 @@ def run_bot():
     asyncio.set_event_loop(loop)
     loop.run_until_complete(tg_app.initialize())
     loop.run_until_complete(tg_app.start())
-    loop.create_task(check_expired_users())
+   
+    tg_app.job_queue.run_repeating(
+        check_expired,
+        interval=3600,   # 1 hora
+        first=30         # começa 30 segundos após iniciar
+    )
     
     loop.run_forever()
 
