@@ -228,10 +228,8 @@ async def check_expired(context: ContextTypes.DEFAULT_TYPE):
             cursor.execute("""
                 UPDATE users
                 SET paid=0,
-                invite_sent=0,
-                invite_link=NULL,
-                expires_at=NULL
-
+                    invite_sent=0,
+                    invite_link=NULL
                 WHERE telegram_id=%s
             """, (telegram_id,))
 
