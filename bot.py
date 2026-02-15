@@ -1,4 +1,4 @@
-import sqlite3
+import psycopg2
 import asyncio
 import os
 import threading
@@ -16,19 +16,24 @@ GUMROAD_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
 app = Flask(__name__)
 
 # ---------- DATABASE ----------
-conn = sqlite3.connect("database.db", check_same_thread=False)
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+conn = psycopg2.connect(DATABASE_URL)
+conn.autocommit = True
 cursor = conn.cursor()
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS users (
-    telegram_id INTEGER PRIMARY KEY,
+    telegram_id BIGINT PRIMARY KEY,
     username TEXT,
     paid INTEGER DEFAULT 0,
     invite_sent INTEGER DEFAULT 0,
     invite_link TEXT,
-    expires_at INTEGER
+    expires_at BIGINT
 )
 """)
-conn.commit()
+
+
 
 # ---------- TEXT ----------
 TEXT = {
@@ -52,10 +57,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.effective_user.username or "none"
 
     cursor.execute(
-        "INSERT OR IGNORE INTO users (telegram_id, username) VALUES (?, ?)",
+        """
+        INSERT INTO users (telegram_id, username)
+        VALUES (%s, %s)
+        ON CONFLICT (telegram_id) DO NOTHING
+        """,
         (tid, username)
     )
+
     conn.commit()
+
 
     keyboard = [
         [InlineKeyboardButton("🔥 Unlock My VIP 🔥", url=GUMROAD_LINK)]
@@ -84,7 +95,7 @@ async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("""
         SELECT paid, invite_sent, invite_link, expires_at
         FROM users
-        WHERE telegram_id=?
+        WHERE telegram_id=%s
     """, (tid,))
     row = cursor.fetchone()
 
@@ -128,11 +139,12 @@ async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Save in database
     cursor.execute("""
-        UPDATE users
-        SET invite_sent=1,
-            invite_link=?
-        WHERE telegram_id=?
-    """, (invite.invite_link, tid))
+    UPDATE users
+    SET invite_sent=1,
+        invite_link=%s
+    WHERE telegram_id=%s
+""", (invite.invite_link, tid))
+
     conn.commit()
 
     await update.message.reply_text(
@@ -152,7 +164,8 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("""
     SELECT paid, expires_at
     FROM users
-    WHERE telegram_id=?
+    WHERE telegram_id=%s
+
     """, (tid,))
     row = cursor.fetchone()
 
@@ -201,7 +214,8 @@ async def check_expired_users():
         cursor.execute("""
             SELECT telegram_id
             FROM users
-            WHERE paid=1 AND expires_at IS NOT NULL AND expires_at < ?
+            WHERE paid=1 AND expires_at IS NOT NULL AND expires_at < %s
+
         """, (now,))
 
         expired_users = cursor.fetchall()
@@ -219,7 +233,8 @@ async def check_expired_users():
                     SET paid=0,
                         invite_sent=0,
                         invite_link=NULL
-                    WHERE telegram_id=?
+                    WHERE telegram_id=%s
+
                 """, (telegram_id,))
                 conn.commit()
 
@@ -276,10 +291,11 @@ def gumroad_webhook():
     cursor.execute("""
     UPDATE users 
     SET paid=1, 
-        expires_at=?, 
+        expires_at=%s,
         invite_sent=0, 
         invite_link=NULL
-    WHERE telegram_id=?
+    WHERE telegram_id=%s
+
 """, (expires_at, int(telegram_id)))
 
     conn.commit()
