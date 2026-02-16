@@ -16,6 +16,13 @@ GUMROAD_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
 # ---------- FLASK ----------
 app = Flask(__name__)
 
+
+# IDs reais que você obteve
+EXPECTED_PRODUCT_ID = os.environ.get("EXPECTED_PRODUCT_ID")
+EXPECTED_SELLER_ID = os.environ.get("EXPECTED_SELLER_ID")
+
+
+
 # ---------- DATABASE ----------
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -34,6 +41,11 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS sales (
+    sale_id TEXT PRIMARY KEY
+)
+""")
 
 
 # ---------- TEXT ----------
@@ -277,30 +289,57 @@ logging.basicConfig(level=logging.INFO)
 def gumroad_webhook():
     data = request.form.to_dict()
     logging.info("Gumroad: %s", data)
+
+    # 1️⃣ Validar evento
+    if data.get("event") != "sale":
+        return "ignored event", 200
+
+    # 2️⃣ Validar product_id
+    if data.get("product_id") != EXPECTED_PRODUCT_ID:
+        return "invalid product", 403
+
+    # 3️⃣ Validar seller_id
+    if data.get("seller_id") != EXPECTED_SELLER_ID:
+        return "invalid seller", 403
+
+    # 4️⃣ Bloquear testes
+    if data.get("test") == "true":
+        return "test ignored", 200
+
     telegram_id = data.get("custom_fields[Telegram ID]")
     if not telegram_id:
         return "missing telegram id", 400
-    return "ok"
 
-    # Set expiration: 30 days from now
+    sale_id = data.get("sale_id")
+    if not sale_id:
+        return "missing sale_id", 400
+
+    # 5️⃣ Anti-replay
+    cursor.execute("SELECT 1 FROM sales WHERE sale_id=%s", (sale_id,))
+    if cursor.fetchone():
+        return "already processed", 200
+
+    # Expiração 30 dias
     expires_at = int(
-    (datetime.now(timezone.utc) + timedelta(days=1)).timestamp()
-)
-
+        (datetime.now(timezone.utc) + timedelta(days=30)).timestamp()
+    )
 
     cursor.execute("""
-    UPDATE users 
-    SET paid=1, 
-        expires_at=%s,
-        invite_sent=0, 
-        invite_link=NULL
-    WHERE telegram_id=%s
+        UPDATE users
+        SET paid=1,
+            expires_at=%s,
+            invite_sent=0,
+            invite_link=NULL
+        WHERE telegram_id=%s
+    """, (expires_at, int(telegram_id)))
 
-""", (expires_at, int(telegram_id)))
-
-    conn.commit()
+    cursor.execute("""
+        INSERT INTO sales (sale_id)
+        VALUES (%s)
+    """, (sale_id,))
 
     return "ok"
+
 
 # ---------- RUN FLASK ----------
 @app.route("/")
