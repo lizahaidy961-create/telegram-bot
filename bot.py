@@ -171,14 +171,12 @@ async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- /STATUS ----------
 async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tid = update.effective_user.id
-    now = datetime.now(timezone.utc).timestamp()
-
+    now = int(datetime.now(timezone.utc).timestamp())
 
     cursor.execute("""
-    SELECT paid, expires_at
-    FROM users
-    WHERE telegram_id=%s
-
+        SELECT paid, expires_at
+        FROM users
+        WHERE telegram_id=%s
     """, (tid,))
     row = cursor.fetchone()
 
@@ -188,13 +186,24 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     paid, expires_at = row
 
+    # Access expired
     if expires_at is not None and expires_at < now:
-        expired_date = datetime.utcfromtimestamp(expires_at).strftime("%d/%m/%Y")
-        await update.message.reply_text(f"⛔ Your access expired on {expired_date}.\nUse /start to renew.")
+        expired_date = datetime.fromtimestamp(
+            expires_at,
+            timezone.utc
+        ).strftime("%d/%m/%Y")
+
+        await update.message.reply_text(
+            f"⛔ Your access expired on {expired_date}.\nUse /start to renew."
+        )
         return
 
+    # Access active
     if expires_at is not None:
-        expire_str = datetime.utcfromtimestamp(expires_at).strftime("%d/%m/%Y")
+        expire_str = datetime.fromtimestamp(
+            expires_at,
+            timezone.utc
+        ).strftime("%d/%m/%Y")
     else:
         expire_str = "Lifetime"
 
@@ -204,6 +213,7 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📅 Valid until: {expire_str}\n"
         f"🔓 Access: active"
     )
+
 
 # ---------- /ID ----------
 async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -321,7 +331,7 @@ def gumroad_webhook():
 
     # Expiração 30 dias
     expires_at = int(
-        (datetime.now(timezone.utc) + timedelta(days=30)).timestamp()
+        (datetime.now(timezone.utc) + timedelta(days=1)).timestamp()
     )
 
     cursor.execute("""
