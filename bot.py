@@ -1,6 +1,7 @@
 import psycopg2
 import asyncio
 import os
+import logging
 import threading
 from datetime import datetime, timedelta, timezone
 from flask import Flask, request
@@ -270,14 +271,16 @@ def telegram_webhook():
     return "ok"
 
 # ---------- GUMROAD WEBHOOK ----------
+logging.basicConfig(level=logging.INFO)
+
 @app.route("/webhook", methods=["POST"])
 def gumroad_webhook():
     data = request.form.to_dict()
-    print("Gumroad:", data)
-
+    logging.info("Gumroad: %s", data)
     telegram_id = data.get("custom_fields[Telegram ID]")
     if not telegram_id:
         return "missing telegram id", 400
+    return "ok"
 
     # Set expiration: 30 days from now
     expires_at = int(
