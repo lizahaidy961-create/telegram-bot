@@ -7,11 +7,13 @@ from datetime import datetime, timedelta, timezone
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.error import BadRequest
 
 # ---------- CONFIG ----------
 TOKEN = "8533380179:AAGm4C9zN_J1_C3SeMiUPr-iCv-pj3gAXhI"
 VIP_GROUP_ID = -1003723951596
 GUMROAD_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
+FANSLY_FEET_LINK = "https://fansly.com/Viniz_"
 
 # ---------- FLASK ----------
 app = Flask(__name__)
@@ -222,11 +224,33 @@ async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📌 Chat ID:\n{chat.id}\n\nType: {chat.type}"
     )
 
+
+# ---------- /FEET ----------
+async def feet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🦶 Enter My Feet World 🦶", url=FANSLY_FEET_LINK)]
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        "Oh… so you like feet? 🦶😈\n\n"
+        "I have something very special waiting for you there…\n\n"
+        "Exclusive feet content\n"
+        "Close-ups\n"
+        "Custom requests 💦\n\n"
+        "Tap below and enjoy…",
+        reply_markup=reply_markup
+    )
+
+
+
 # ---------- HANDLERS ----------
 tg_app.add_handler(CommandHandler("start", start))
 tg_app.add_handler(CommandHandler("vip", vip))
 tg_app.add_handler(CommandHandler("status", status))
 tg_app.add_handler(CommandHandler("id", get_id))
+tg_app.add_handler(CommandHandler("feet", feet))
 
 
 # ---------- AUTO REMOVE EXPIRED USERS ----------
@@ -236,7 +260,7 @@ async def check_expired(context: ContextTypes.DEFAULT_TYPE):
     cursor.execute("""
         SELECT telegram_id
         FROM users
-        WHERE paid=1
+        WHERE paid = 1
         AND expires_at IS NOT NULL
         AND expires_at < %s
     """, (now,))
@@ -245,23 +269,33 @@ async def check_expired(context: ContextTypes.DEFAULT_TYPE):
 
     for (telegram_id,) in expired_users:
         try:
-            await context.bot.ban_chat_member(VIP_GROUP_ID, telegram_id)
-            await context.bot.unban_chat_member(VIP_GROUP_ID, telegram_id)
+            member = await context.bot.get_chat_member(VIP_GROUP_ID, telegram_id)
 
-            cursor.execute("""
-                UPDATE users
-                SET paid=0,
-                invite_sent=0,
-                invite_link=NULL,
-                expires_at=NULL
+            if member.status in ["member", "administrator"]:
+                await context.bot.ban_chat_member(VIP_GROUP_ID, telegram_id)
+                await context.bot.unban_chat_member(VIP_GROUP_ID, telegram_id)
 
-                WHERE telegram_id=%s
-            """, (telegram_id,))
+            print(f"Removed expired user from group: {telegram_id}")
 
-            print(f"Removed expired user: {telegram_id}")
+        except BadRequest:
+            # Usuário já não está no grupo
+            print(f"User already not in group: {telegram_id}")
 
         except Exception as e:
-            print("Error removing user:", e)
+            print(f"Unexpected error removing {telegram_id}: {e}")
+            continue  # não atualiza banco se erro crítico
+
+        # Atualiza banco após remover (ou se já não estava no grupo)
+        cursor.execute("""
+            UPDATE users
+            SET paid = 0,
+                invite_sent = 0,
+                invite_link = NULL,
+                expires_at = NULL
+            WHERE telegram_id = %s
+        """, (telegram_id,))
+
+        print(f"Database updated for expired user: {telegram_id}")
 
 
 # ---------- EVENT LOOP (THREAD SEPARADA) ----------
@@ -308,6 +342,15 @@ def gumroad_webhook():
     if data.get("product_id") != EXPECTED_PRODUCT_ID:
         return "invalid product", 403
 
+
+    # Bloquear compras reembolsadas ou disputadas
+    if data.get("refunded") == "true":
+       return "refunded", 403
+
+    if data.get("disputed") == "true":
+       return "disputed", 403
+
+
     # 3️⃣ Validar seller_id
     if data.get("seller_id") != EXPECTED_SELLER_ID:
         return "invalid seller", 403
@@ -329,24 +372,30 @@ def gumroad_webhook():
     if cursor.fetchone():
         return "already processed", 200
 
-    # Expiração 30 dias
+       # Expiração 30 dias
     expires_at = int(
         (datetime.now(timezone.utc) + timedelta(days=1)).timestamp()
     )
 
     cursor.execute("""
-        UPDATE users
-        SET paid=1,
-            expires_at=%s,
-            invite_sent=0,
-            invite_link=NULL
-        WHERE telegram_id=%s
-    """, (expires_at, int(telegram_id)))
+        INSERT INTO users (telegram_id, paid, expires_at, invite_sent, invite_link)
+        VALUES (%s, 1, %s, 0, NULL)
+        ON CONFLICT (telegram_id)
+        DO UPDATE SET
+            paid = 1,
+            expires_at = EXCLUDED.expires_at,
+            invite_sent = 0,
+            invite_link = NULL
+    """, (int(telegram_id), expires_at))
+
+
 
     cursor.execute("""
         INSERT INTO sales (sale_id)
         VALUES (%s)
     """, (sale_id,))
+
+    conn.commit()
 
     return "ok"
 
