@@ -324,7 +324,8 @@ def telegram_webhook():
         tg_app.process_update(update),
         loop
     )
-    return "ok"
+    return "ok", 200
+
 
 # ---------- GUMROAD WEBHOOK ----------
 logging.basicConfig(level=logging.INFO)
@@ -334,12 +335,11 @@ def gumroad_webhook():
     data = request.form.to_dict()
     logging.info("Gumroad: %s", data)
 
-  
     # 1️⃣ Garantir que é venda
     if data.get("resource_name") != "sale":
         return "ignored event", 200
 
-   # 2️⃣ Validar product_id
+    # 2️⃣ Validar product_id
     if data.get("product_id") != EXPECTED_PRODUCT_ID:
         logging.warning("Invalid product_id: %s", data.get("product_id"))
         return "invalid product", 403
@@ -347,12 +347,11 @@ def gumroad_webhook():
     # Bloquear compras reembolsadas ou disputadas
     if data.get("refunded") == "true":
         return "refunded", 403
-
     if data.get("disputed") == "true":
         return "disputed", 403
 
     # 3️⃣ Validar seller_id
-     if data.get("seller_id") != EXPECTED_SELLER_ID:
+    if data.get("seller_id") != EXPECTED_SELLER_ID:
         logging.warning("Invalid seller_id: %s", data.get("seller_id"))
         return "invalid seller", 403
 
@@ -370,7 +369,7 @@ def gumroad_webhook():
         return "already processed", 200
 
     # Expiração 30 dias
-    expires_at = int((datetime.now(timezone.utc) + timedelta(days=1)).timestamp())
+    expires_at = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
 
     # 7️⃣ Atualizar usuário
     cursor.execute("""
@@ -395,6 +394,7 @@ def gumroad_webhook():
     logging.info("Sale processed successfully for telegram_id=%s", telegram_id)
 
     return "ok", 200
+
 
 # ---------- RUN FLASK ----------
 @app.route("/")
