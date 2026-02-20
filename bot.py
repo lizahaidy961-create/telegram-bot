@@ -334,16 +334,14 @@ def gumroad_webhook():
     data = request.form.to_dict()
     logging.info("Gumroad: %s", data)
 
-# ------------------ DEBUG ------------------
-logging.info("EXPECTED_PRODUCT_ID=%s", EXPECTED_PRODUCT_ID)
-logging.info("EXPECTED_SELLER_ID=%s", EXPECTED_SELLER_ID)
-logging.info("Webhook received product_id=%s, seller_id=%s", data.get("product_id"), data.get("seller_id"))
-logging.info("Custom Telegram ID: %s", data.get("custom_fields[Telegram ID]"))
-logging.info("Price: %s", data.get("price"))
-logging.info("Test sale?: %s", data.get("test"))
-# -----------------------------------------
-
-
+    # ------------------ DEBUG ------------------
+    logging.info("EXPECTED_PRODUCT_ID=%s", EXPECTED_PRODUCT_ID)
+    logging.info("EXPECTED_SELLER_ID=%s", EXPECTED_SELLER_ID)
+    logging.info("Webhook received product_id=%s, seller_id=%s", data.get("product_id"), data.get("seller_id"))
+    logging.info("Custom Telegram ID: %s", data.get("custom_fields[Telegram ID]"))
+    logging.info("Price: %s", data.get("price"))
+    logging.info("Test sale?: %s", data.get("test"))
+    # -----------------------------------------
 
     # 1️⃣ Validar evento
     if data.get("event") != "sale":
@@ -356,18 +354,16 @@ logging.info("Test sale?: %s", data.get("test"))
 
     # Bloquear compras reembolsadas ou disputadas
     if data.get("refunded") == "true":
-       return "refunded", 403
+        return "refunded", 403
 
     if data.get("disputed") == "true":
-       return "disputed", 403
-
+        return "disputed", 403
 
     # 3️⃣ Validar seller_id
-   if data.get("seller_id") != EXPECTED_SELLER_ID:
+    if data.get("seller_id") != EXPECTED_SELLER_ID:
         logging.warning("❌ Invalid seller_id received: %s", data.get("seller_id"))
         return "invalid seller", 403
 
-   
     telegram_id = data.get("custom_fields[Telegram ID]")
     if not telegram_id:
         return "missing telegram id", 400
@@ -381,12 +377,10 @@ logging.info("Test sale?: %s", data.get("test"))
     if cursor.fetchone():
         return "already processed", 200
 
-       # Expiração 30 dias
-    expires_at = int(
-        (datetime.now(timezone.utc) + timedelta(days=1)).timestamp()
-    )
+    # Expiração 30 dias
+    expires_at = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
 
-   cursor.execute("""
+    cursor.execute("""
         INSERT INTO users (telegram_id, paid, expires_at, invite_sent, invite_link)
         VALUES (%s, 1, %s, 0, NULL)
         ON CONFLICT (telegram_id)
@@ -396,18 +390,17 @@ logging.info("Test sale?: %s", data.get("test"))
             invite_sent = 0,
             invite_link = NULL
     """, (int(telegram_id), expires_at))
-          logging.info("✅ User updated in DB: telegram_id=%s, expires_at=%s", telegram_id, expires_at)
+    logging.info("✅ User updated in DB: telegram_id=%s, expires_at=%s", telegram_id, expires_at)
 
 
     cursor.execute("""
         INSERT INTO sales (sale_id)
         VALUES (%s)
     """, (sale_id,))
-     logging.info("✅ Sale recorded in DB: sale_id=%s", sale_id)
+    logging.info("✅ Sale recorded in DB: sale_id=%s", sale_id)
     conn.commit()
 
     return "ok"
-
 
 
 # ---------- RUN FLASK ----------
