@@ -316,50 +316,33 @@ def run_bot():
 
 threading.Thread(target=run_bot, daemon=True).start()
 
-# ---------- TELEGRAM WEBHOOK ----------
-@app.route(f"/{TOKEN}", methods=["POST"])
-def telegram_webhook():
-    update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    asyncio.run_coroutine_threadsafe(
-        tg_app.process_update(update),
-        loop
-    )
-    return "ok"
 
 # ---------- GUMROAD WEBHOOK ----------
-logging.basicConfig(level=logging.INFO)
-
 @app.route("/webhook", methods=["POST"])
 def gumroad_webhook():
     data = request.form.to_dict()
-    logging.info("Gumroad: %s", data)
+    logging.info("Gumroad webhook received")
 
-    # ------------------ DEBUG ------------------
-    logging.info("EXPECTED_PRODUCT_ID=%s", EXPECTED_PRODUCT_ID)
-    logging.info("EXPECTED_SELLER_ID=%s", EXPECTED_SELLER_ID)
-    logging.info("Webhook received product_id=%s, seller_id=%s", data.get("product_id"), data.get("seller_id"))
-    logging.info("Custom Telegram ID: %s", data.get("custom_fields[Telegram ID]"))
-    logging.info("Price: %s", data.get("price"))
-    logging.info("Test sale?: %s", data.get("test"))
-    # -----------------------------------------
-
+    # 1️⃣ Garantir que é venda
+    if data.get("resource_name") != "sale":
+        return "ignored event", 200
 
     # 2️⃣ Validar product_id
     if data.get("product_id") != EXPECTED_PRODUCT_ID:
-        logging.warning("❌ Invalid product_id received: %s", data.get("product_id"))
+        logging.warning("Invalid product_id: %s", data.get("product_id"))
         return "invalid product", 403
 
-    # Bloquear compras reembolsadas ou disputadas
+    # 3️⃣ Validar seller_id
+    if data.get("seller_id") != EXPECTED_SELLER_ID:
+        logging.warning("Invalid seller_id: %s", data.get("seller_id"))
+        return "invalid seller", 403
+
+    # 4️⃣ Bloquear reembolso ou disputa
     if data.get("refunded") == "true":
         return "refunded", 403
 
     if data.get("disputed") == "true":
         return "disputed", 403
-
-    # 3️⃣ Validar seller_id
-    if data.get("seller_id") != EXPECTED_SELLER_ID:
-        logging.warning("❌ Invalid seller_id received: %s", data.get("seller_id"))
-        return "invalid seller", 403
 
     telegram_id = data.get("custom_fields[Telegram ID]")
     if not telegram_id:
@@ -369,14 +352,17 @@ def gumroad_webhook():
     if not sale_id:
         return "missing sale_id", 400
 
-    # 5️⃣ Anti-replay
+    # 5️⃣ Anti-replay (não processar duas vezes)
     cursor.execute("SELECT 1 FROM sales WHERE sale_id=%s", (sale_id,))
     if cursor.fetchone():
         return "already processed", 200
 
-    # Expiração 30 dias
-    expires_at = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+    # 6️⃣ Definir expiração (30 dias)
+    expires_at = int(
+        (datetime.now(timezone.utc) + timedelta(days=1)).timestamp()
+    )
 
+    # 7️⃣ Atualizar usuário
     cursor.execute("""
         INSERT INTO users (telegram_id, paid, expires_at, invite_sent, invite_link)
         VALUES (%s, 1, %s, 0, NULL)
@@ -387,18 +373,18 @@ def gumroad_webhook():
             invite_sent = 0,
             invite_link = NULL
     """, (int(telegram_id), expires_at))
-    logging.info("✅ User updated in DB: telegram_id=%s, expires_at=%s", telegram_id, expires_at)
 
-
+    # 8️⃣ Registrar venda
     cursor.execute("""
         INSERT INTO sales (sale_id)
         VALUES (%s)
     """, (sale_id,))
-    logging.info("✅ Sale recorded in DB: sale_id=%s", sale_id)
+
     conn.commit()
 
-    return "ok"
+    logging.info("Sale processed successfully for telegram_id=%s", telegram_id)
 
+    return "ok", 200
 
 # ---------- RUN FLASK ----------
 @app.route("/")
