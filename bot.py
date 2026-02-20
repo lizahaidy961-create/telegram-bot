@@ -316,33 +316,45 @@ def run_bot():
 
 threading.Thread(target=run_bot, daemon=True).start()
 
+# ---------- TELEGRAM WEBHOOK ----------
+@app.route(f"/{TOKEN}", methods=["POST"])
+def telegram_webhook():
+    update = Update.de_json(request.get_json(force=True), tg_app.bot)
+    asyncio.run_coroutine_threadsafe(
+        tg_app.process_update(update),
+        loop
+    )
+    return "ok"
 
 # ---------- GUMROAD WEBHOOK ----------
+logging.basicConfig(level=logging.INFO)
+
 @app.route("/webhook", methods=["POST"])
 def gumroad_webhook():
     data = request.form.to_dict()
-    logging.info("Gumroad webhook received")
+    logging.info("Gumroad: %s", data)
 
+  
     # 1️⃣ Garantir que é venda
     if data.get("resource_name") != "sale":
         return "ignored event", 200
 
-    # 2️⃣ Validar product_id
+   # 2️⃣ Validar product_id
     if data.get("product_id") != EXPECTED_PRODUCT_ID:
         logging.warning("Invalid product_id: %s", data.get("product_id"))
         return "invalid product", 403
 
-    # 3️⃣ Validar seller_id
-    if data.get("seller_id") != EXPECTED_SELLER_ID:
-        logging.warning("Invalid seller_id: %s", data.get("seller_id"))
-        return "invalid seller", 403
-
-    # 4️⃣ Bloquear reembolso ou disputa
+    # Bloquear compras reembolsadas ou disputadas
     if data.get("refunded") == "true":
         return "refunded", 403
 
     if data.get("disputed") == "true":
         return "disputed", 403
+
+    # 3️⃣ Validar seller_id
+     if data.get("seller_id") != EXPECTED_SELLER_ID:
+        logging.warning("Invalid seller_id: %s", data.get("seller_id"))
+        return "invalid seller", 403
 
     telegram_id = data.get("custom_fields[Telegram ID]")
     if not telegram_id:
@@ -352,15 +364,13 @@ def gumroad_webhook():
     if not sale_id:
         return "missing sale_id", 400
 
-    # 5️⃣ Anti-replay (não processar duas vezes)
+    # 5️⃣ Anti-replay
     cursor.execute("SELECT 1 FROM sales WHERE sale_id=%s", (sale_id,))
     if cursor.fetchone():
         return "already processed", 200
 
-    # 6️⃣ Definir expiração (30 dias)
-    expires_at = int(
-        (datetime.now(timezone.utc) + timedelta(days=1)).timestamp()
-    )
+    # Expiração 30 dias
+    expires_at = int((datetime.now(timezone.utc) + timedelta(days=1)).timestamp())
 
     # 7️⃣ Atualizar usuário
     cursor.execute("""
