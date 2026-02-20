@@ -343,9 +343,6 @@ def gumroad_webhook():
     logging.info("Test sale?: %s", data.get("test"))
     # -----------------------------------------
 
-    # 1️⃣ Validar evento
-    if data.get("event") != "sale":
-        return "ignored event", 200
 
     # 2️⃣ Validar product_id
     if data.get("product_id") != EXPECTED_PRODUCT_ID:
