@@ -334,13 +334,25 @@ def gumroad_webhook():
     data = request.form.to_dict()
     logging.info("Gumroad: %s", data)
 
+# ------------------ DEBUG ------------------
+logging.info("EXPECTED_PRODUCT_ID=%s", EXPECTED_PRODUCT_ID)
+logging.info("EXPECTED_SELLER_ID=%s", EXPECTED_SELLER_ID)
+logging.info("Webhook received product_id=%s, seller_id=%s", data.get("product_id"), data.get("seller_id"))
+logging.info("Custom Telegram ID: %s", data.get("custom_fields[Telegram ID]"))
+logging.info("Price: %s", data.get("price"))
+logging.info("Test sale?: %s", data.get("test"))
+# -----------------------------------------
+
+
+
     # 1️⃣ Validar evento
     if data.get("event") != "sale":
         return "ignored event", 200
 
     # 2️⃣ Validar product_id
     if data.get("product_id") != EXPECTED_PRODUCT_ID:
-        return "invalid product", 403
+    logging.warning("❌ Invalid product_id received: %s", data.get("product_id"))
+    return "invalid product", 403
 
 
     # Bloquear compras reembolsadas ou disputadas
@@ -352,8 +364,9 @@ def gumroad_webhook():
 
 
     # 3️⃣ Validar seller_id
-    if data.get("seller_id") != EXPECTED_SELLER_ID:
-        return "invalid seller", 403
+   if data.get("seller_id") != EXPECTED_SELLER_ID:
+    logging.warning("❌ Invalid seller_id received: %s", data.get("seller_id"))
+    return "invalid seller", 403
 
    
     telegram_id = data.get("custom_fields[Telegram ID]")
@@ -384,14 +397,14 @@ def gumroad_webhook():
             invite_sent = 0,
             invite_link = NULL
     """, (int(telegram_id), expires_at))
-
+        logging.info("✅ User updated in DB: telegram_id=%s, expires_at=%s", telegram_id, expires_at)
 
 
     cursor.execute("""
         INSERT INTO sales (sale_id)
         VALUES (%s)
     """, (sale_id,))
-
+    logging.info("✅ Sale recorded in DB: sale_id=%s", sale_id)
     conn.commit()
 
     return "ok"
