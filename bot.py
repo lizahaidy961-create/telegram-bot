@@ -355,10 +355,7 @@ def gumroad_webhook():
     if data.get("seller_id") != EXPECTED_SELLER_ID:
         return "invalid seller", 403
 
-    # 4️⃣ Bloquear testes
-    if data.get("test") == "true":
-        return "test ignored", 200
-
+   
     telegram_id = data.get("custom_fields[Telegram ID]")
     if not telegram_id:
         return "missing telegram id", 400
