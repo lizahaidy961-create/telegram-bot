@@ -369,7 +369,7 @@ def gumroad_webhook():
         return "already processed", 200
 
     # Expiração 30 dias
-    expires_at = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+    expires_at = int((datetime.now(timezone.utc) + timedelta(days=1)).timestamp())
 
     # 7️⃣ Atualizar usuário
     cursor.execute("""
