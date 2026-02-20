@@ -351,9 +351,8 @@ logging.info("Test sale?: %s", data.get("test"))
 
     # 2️⃣ Validar product_id
     if data.get("product_id") != EXPECTED_PRODUCT_ID:
-    logging.warning("❌ Invalid product_id received: %s", data.get("product_id"))
-    return "invalid product", 403
-
+        logging.warning("❌ Invalid product_id received: %s", data.get("product_id"))
+        return "invalid product", 403
 
     # Bloquear compras reembolsadas ou disputadas
     if data.get("refunded") == "true":
@@ -365,8 +364,8 @@ logging.info("Test sale?: %s", data.get("test"))
 
     # 3️⃣ Validar seller_id
    if data.get("seller_id") != EXPECTED_SELLER_ID:
-    logging.warning("❌ Invalid seller_id received: %s", data.get("seller_id"))
-    return "invalid seller", 403
+        logging.warning("❌ Invalid seller_id received: %s", data.get("seller_id"))
+        return "invalid seller", 403
 
    
     telegram_id = data.get("custom_fields[Telegram ID]")
@@ -387,7 +386,7 @@ logging.info("Test sale?: %s", data.get("test"))
         (datetime.now(timezone.utc) + timedelta(days=1)).timestamp()
     )
 
-    cursor.execute("""
+   cursor.execute("""
         INSERT INTO users (telegram_id, paid, expires_at, invite_sent, invite_link)
         VALUES (%s, 1, %s, 0, NULL)
         ON CONFLICT (telegram_id)
@@ -397,17 +396,18 @@ logging.info("Test sale?: %s", data.get("test"))
             invite_sent = 0,
             invite_link = NULL
     """, (int(telegram_id), expires_at))
-        logging.info("✅ User updated in DB: telegram_id=%s, expires_at=%s", telegram_id, expires_at)
+          logging.info("✅ User updated in DB: telegram_id=%s, expires_at=%s", telegram_id, expires_at)
 
 
     cursor.execute("""
         INSERT INTO sales (sale_id)
         VALUES (%s)
     """, (sale_id,))
-    logging.info("✅ Sale recorded in DB: sale_id=%s", sale_id)
+     logging.info("✅ Sale recorded in DB: sale_id=%s", sale_id)
     conn.commit()
 
     return "ok"
+
 
 
 # ---------- RUN FLASK ----------
