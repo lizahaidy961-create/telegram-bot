@@ -1,407 +1,67 @@
-import psycopg2
-import asyncio
 import os
-import logging
-import threading
-from datetime import datetime, timedelta, timezone
-from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes
-from telegram.error import BadRequest
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-# ---------- CONFIG ----------
-TOKEN = "8533380179:AAGm4C9zN_J1_C3SeMiUPr-iCv-pj3gAXhI"
-VIP_GROUP_ID = -1003723951596
-GUMROAD_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
+# Pega o token do bot da variável de ambiente
+TOKEN = os.environ.get("BOT_TOKEN")
+
+# Link do seu conteúdo
 FANSLY_FEET_LINK = "https://fansly.com/Viniz_"
 
-# ---------- FLASK ----------
-app = Flask(__name__)
-
-
-# IDs reais que você obteve
-EXPECTED_PRODUCT_ID = os.environ.get("EXPECTED_PRODUCT_ID")
-EXPECTED_SELLER_ID = os.environ.get("EXPECTED_SELLER_ID")
-
-
-
-# ---------- DATABASE ----------
-DATABASE_URL = os.environ.get("DATABASE_URL")
-
-conn = psycopg2.connect(DATABASE_URL)
-conn.autocommit = True
-cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    telegram_id BIGINT PRIMARY KEY,
-    username TEXT,
-    paid INTEGER DEFAULT 0,
-    invite_sent INTEGER DEFAULT 0,
-    invite_link TEXT,
-    expires_at BIGINT
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS sales (
-    sale_id TEXT PRIMARY KEY
-)
-""")
-
-
-# ---------- TEXT ----------
-TEXT = {
-    "welcome": (
-        "👋 Hello Welcome!\n\n"
-        "🆔 Your Telegram ID:\n{tid}\n\n"
-        "📌 Paste this ID in Gumroad checkout\n\n"
-        "💳 Buy here:\n{link}\n\n"
-        "After payment, return and type /vip"
-    ),
-    "not_paid": "❌ Payment not found.\n\nBuy here:\n{link}",
-    "success": "🎉 Access granted!\n\nVIP Group:\n{link}"
-}
-
-# ---------- BOT ----------
-tg_app = Application.builder().token(TOKEN).build()
-
-# ---------- /START ----------
+# Comando /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tid = update.effective_user.id
-    username = update.effective_user.username or "none"
-
-    cursor.execute(
-        """
-        INSERT INTO users (telegram_id, username)
-        VALUES (%s, %s)
-        ON CONFLICT (telegram_id) DO NOTHING
-        """,
-        (tid, username)
-    )
-
-    conn.commit()
-
-
-    keyboard = [
-        [InlineKeyboardButton("🔥 Unlock My VIP 🔥", url=GUMROAD_LINK)]
-    ]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    await update.message.reply_text(
-        f"Hey you… 😈\n\n"
-        f"Ready to see what I don't post anywhere else?\n\n"
-        f"💋 Exclusive +18 content\n"
-        f"💦 Private videos\n"
-        f"🔥 VIP-only surprises\n\n"
-        f"🆔 Your ID: {tid}\n"
-        f"(Paste this at checkout)\n\n"
-        f"After payment, come back and type /vip to enter my private world… 💕",
-        reply_markup=reply_markup
-    )
-
-
-# ---------- /VIP ----------
-async def vip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tid = update.effective_user.id
-    now = int(datetime.now(timezone.utc).timestamp())
-
-    cursor.execute("""
-        SELECT paid, invite_sent, invite_link, expires_at
-        FROM users
-        WHERE telegram_id=%s
-    """, (tid,))
-    row = cursor.fetchone()
-
-    # User hasn't paid or doesn't exist
-    if not row or row[0] != 1:
-        keyboard = [
-            [InlineKeyboardButton("💳 Unlock Access", url=GUMROAD_LINK)]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            "😈 You don’t have access yet...\n\n"
-            "Tap below to unlock my private VIP content 🔥",
-            reply_markup=reply_markup
-        )
-        return
-
-    paid, invite_sent, invite_link, expires_at = row
-
-    # Access expired
-    if expires_at is not None and expires_at < now:
-        await update.message.reply_text(
-            "⏰ Your access has expired.\n\nUse /start to renew 🔥"
-        )
-        return
-
-    # Already has link → resend the same
-    if invite_sent == 1 and invite_link:
-        await update.message.reply_text(
-            f"😈 Welcome back...\n\n"
-            f"Here’s your private access:\n\n{invite_link}"
-        )
-        return
-
-    # Create a unique invite link
-    invite = await context.bot.create_chat_invite_link(
-        chat_id=VIP_GROUP_ID,
-        member_limit=1,
-        expire_date=expires_at
-    )
-
-    # Save in database
-    cursor.execute("""
-    UPDATE users
-    SET invite_sent=1,
-        invite_link=%s
-    WHERE telegram_id=%s
-""", (invite.invite_link, tid))
-
-    conn.commit()
-
-    await update.message.reply_text(
-        f"Good choice… 😈🔥\n\n"
-        f"Your private access is ready:\n\n"
-        f"{invite.invite_link}\n\n"
-        f"Don’t keep me waiting… 💋"
-    )
-
-
-# ---------- /STATUS ----------
-async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tid = update.effective_user.id
-    now = int(datetime.now(timezone.utc).timestamp())
-
-    cursor.execute("""
-        SELECT paid, expires_at
-        FROM users
-        WHERE telegram_id=%s
-    """, (tid,))
-    row = cursor.fetchone()
-
-    if not row or row[0] != 1:
-        await update.message.reply_text("❌ You do not have an active subscription.")
-        return
-
-    paid, expires_at = row
-
-    # Access expired
-    if expires_at is not None and expires_at < now:
-        expired_date = datetime.fromtimestamp(
-            expires_at,
-            timezone.utc
-        ).strftime("%d/%m/%Y")
-
-        await update.message.reply_text(
-            f"⛔ Your access expired on {expired_date}.\nUse /start to renew."
-        )
-        return
-
-    # Access active
-    if expires_at is not None:
-        expire_str = datetime.fromtimestamp(
-            expires_at,
-            timezone.utc
-        ).strftime("%d/%m/%Y")
-    else:
-        expire_str = "Lifetime"
-
-    await update.message.reply_text(
-        f"📊 Your subscription status:\n\n"
-        f"✅ Payment: confirmed\n"
-        f"📅 Valid until: {expire_str}\n"
-        f"🔓 Access: active"
-    )
-
-
-# ---------- /ID ----------
-async def get_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    await update.message.reply_text(
-        f"📌 Chat ID:\n{chat.id}\n\nType: {chat.type}"
-    )
-
-
-# ---------- /FEET ----------
-async def feet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🦶 Enter My Feet World 🦶", url=FANSLY_FEET_LINK)]
     ]
-
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "Oh… so you like feet? 🦶😈\n\n"
+        "Hey you… 😈\n\n"
+        "So you like feet? 🦶🔥\n\n"
         "I have something very special waiting for you there…\n\n"
-        "Exclusive feet content\n"
-        "Close-ups\n"
+        "Exclusive content\n"
         "Custom requests 💦\n\n"
         "Tap below and enjoy…",
         reply_markup=reply_markup
     )
 
+# Comando /feet
+async def feet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🦶 Enter My Feet World 🦶", url=FANSLY_FEET_LINK)]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-
-# ---------- HANDLERS ----------
-tg_app.add_handler(CommandHandler("start", start))
-tg_app.add_handler(CommandHandler("vip", vip))
-tg_app.add_handler(CommandHandler("status", status))
-tg_app.add_handler(CommandHandler("id", get_id))
-tg_app.add_handler(CommandHandler("feet", feet))
-
-
-# ---------- AUTO REMOVE EXPIRED USERS ----------
-async def check_expired(context: ContextTypes.DEFAULT_TYPE):
-    now = int(datetime.now(timezone.utc).timestamp())
-
-    cursor.execute("""
-        SELECT telegram_id
-        FROM users
-        WHERE paid = 1
-        AND expires_at IS NOT NULL
-        AND expires_at < %s
-    """, (now,))
-
-    expired_users = cursor.fetchall()
-
-    for (telegram_id,) in expired_users:
-        try:
-            member = await context.bot.get_chat_member(VIP_GROUP_ID, telegram_id)
-
-            if member.status in ["member", "administrator"]:
-                await context.bot.ban_chat_member(VIP_GROUP_ID, telegram_id)
-                await context.bot.unban_chat_member(VIP_GROUP_ID, telegram_id)
-
-            print(f"Removed expired user from group: {telegram_id}")
-
-        except BadRequest:
-            # Usuário já não está no grupo
-            print(f"User already not in group: {telegram_id}")
-
-        except Exception as e:
-            print(f"Unexpected error removing {telegram_id}: {e}")
-            continue  # não atualiza banco se erro crítico
-
-        # Atualiza banco após remover (ou se já não estava no grupo)
-        cursor.execute("""
-            UPDATE users
-            SET paid = 0,
-                invite_sent = 0,
-                invite_link = NULL,
-                expires_at = NULL
-            WHERE telegram_id = %s
-        """, (telegram_id,))
-
-        print(f"Database updated for expired user: {telegram_id}")
-
-
-# ---------- EVENT LOOP (THREAD SEPARADA) ----------
-loop = asyncio.new_event_loop()
-
-def run_bot():
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(tg_app.initialize())
-    loop.run_until_complete(tg_app.start())
-   
-    tg_app.job_queue.run_repeating(
-        check_expired,
-        interval=3600,   # 1 hora
-        first=30         # começa 30 segundos após iniciar
+    await update.message.reply_text(
+        "You’re back for more? 😈🦶\n\n"
+        "Click below and step into my private world… 💋",
+        reply_markup=reply_markup
     )
-    
-    loop.run_forever()
 
-threading.Thread(target=run_bot, daemon=True).start()
+def main():
+    # Cria o bot
+    app = ApplicationBuilder().token(TOKEN).build()
 
-# ---------- TELEGRAM WEBHOOK ----------
-@app.route(f"/{TOKEN}", methods=["POST"])
-def telegram_webhook():
-    update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    asyncio.run_coroutine_threadsafe(
-        tg_app.process_update(update),
-        loop
+    # Adiciona handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("feet", feet))
+
+    # Configuração do webhook para Render
+    PORT = int(os.environ.get("PORT", 10000))  # Porta que o Render fornece
+    RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL")  # URL pública do Render
+
+    if not TOKEN or not RENDER_EXTERNAL_URL:
+        print("Erro: variável BOT_TOKEN ou RENDER_EXTERNAL_URL não definida")
+        return
+
+    print("Bot rodando em Webhook mode...")
+
+    # Roda o webhook
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        webhook_url=f"{RENDER_EXTERNAL_URL}/{TOKEN}"
     )
-    return "ok", 200
-
-
-# ---------- GUMROAD WEBHOOK ----------
-logging.basicConfig(level=logging.INFO)
-
-@app.route("/webhook", methods=["POST"])
-def gumroad_webhook():
-    data = request.form.to_dict()
-    logging.info("Gumroad: %s", data)
-
-    # 1️⃣ Garantir que é venda
-    if data.get("resource_name") != "sale":
-        return "ignored event", 200
-
-    # 2️⃣ Validar product_id
-    if data.get("product_id") != EXPECTED_PRODUCT_ID:
-        logging.warning("Invalid product_id: %s", data.get("product_id"))
-        return "invalid product", 403
-
-    # Bloquear compras reembolsadas ou disputadas
-    if data.get("refunded") == "true":
-        return "refunded", 403
-    if data.get("disputed") == "true":
-        return "disputed", 403
-
-    # 3️⃣ Validar seller_id
-    if data.get("seller_id") != EXPECTED_SELLER_ID:
-        logging.warning("Invalid seller_id: %s", data.get("seller_id"))
-        return "invalid seller", 403
-
-    telegram_id = data.get("custom_fields[Telegram ID]")
-    if not telegram_id:
-        return "missing telegram id", 400
-
-    sale_id = data.get("sale_id")
-    if not sale_id:
-        return "missing sale_id", 400
-
-    # 5️⃣ Anti-replay
-    cursor.execute("SELECT 1 FROM sales WHERE sale_id=%s", (sale_id,))
-    if cursor.fetchone():
-        return "already processed", 200
-
-    # Expiração 30 dias
-    expires_at = int((datetime.now(timezone.utc) + timedelta(days=1)).timestamp())
-
-    # 7️⃣ Atualizar usuário
-    cursor.execute("""
-        INSERT INTO users (telegram_id, paid, expires_at, invite_sent, invite_link)
-        VALUES (%s, 1, %s, 0, NULL)
-        ON CONFLICT (telegram_id)
-        DO UPDATE SET
-            paid = 1,
-            expires_at = EXCLUDED.expires_at,
-            invite_sent = 0,
-            invite_link = NULL
-    """, (int(telegram_id), expires_at))
-
-    # 8️⃣ Registrar venda
-    cursor.execute("""
-        INSERT INTO sales (sale_id)
-        VALUES (%s)
-    """, (sale_id,))
-
-    conn.commit()
-
-    logging.info("Sale processed successfully for telegram_id=%s", telegram_id)
-
-    return "ok", 200
-
-
-# ---------- RUN FLASK ----------
-@app.route("/")
-def home():
-    return "Bot online", 200
-
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    main()
