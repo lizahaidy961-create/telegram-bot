@@ -2,7 +2,7 @@ import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = os.environ.get("8533380179:AAGm4C9zN_J1_C3SeMiUPr-iCv-pj3gAXhI")
+TOKEN = os.environ.get("BOT_TOKEN")
 
 FANSLY_FEET_LINK = "https://fansly.com/Viniz_"
 
