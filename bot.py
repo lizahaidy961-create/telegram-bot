@@ -1,4 +1,5 @@
 import os
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
@@ -38,7 +39,14 @@ async def feet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
-def main():
+async def main():
+    if not TOKEN or not os.environ.get("RENDER_EXTERNAL_URL"):
+        print("Erro: variável BOT_TOKEN ou RENDER_EXTERNAL_URL não definida")
+        return
+
+    PORT = int(os.environ.get("PORT", 10000))
+    RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL")
+
     # Cria o bot
     app = ApplicationBuilder().token(TOKEN).build()
 
@@ -46,22 +54,16 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("feet", feet))
 
-    # Configuração do webhook para Render
-    PORT = int(os.environ.get("PORT", 10000))  # Porta que o Render fornece
-    RENDER_EXTERNAL_URL = os.environ.get("RENDER_EXTERNAL_URL")  # URL pública do Render
-
-    if not TOKEN or not RENDER_EXTERNAL_URL:
-        print("Erro: variável BOT_TOKEN ou RENDER_EXTERNAL_URL não definida")
-        return
-
     print("Bot rodando em Webhook mode...")
 
-    # Roda o webhook
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{RENDER_EXTERNAL_URL}/{TOKEN}"
-    )
+    # Start do bot
+    await app.start()  # inicializa conexões
+    await app.bot.set_webhook(f"{RENDER_EXTERNAL_URL}/{TOKEN}")  # define webhook
+
+    # Mantém o bot rodando
+    await app.updater.start_polling()  # ou await app.updater.start_webhook(...) se quiser
+    await app.updater.idle()  # mantém o bot ativo
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
