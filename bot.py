@@ -1,49 +1,152 @@
-import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import sqlite3
+import asyncio
+from flask import Flask, request
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    ContextTypes
+)
 
-TOKEN = os.environ.get("BOT_TOKEN")
+app = Flask(__name__)
 
-FANSLY_FEET_LINK = "https://fansly.com/Viniz_"
+# ---------- CONFIGURAÇÕES ----------
+TOKEN = "8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
+VIP_GROUP_ID = -3616377094
+REDIRECT_LINK = "https://helenavargas01.gumroad.com/l/helenavargasvip"
 
+# ---------- BANCO DE DADOS ----------
+conn = sqlite3.connect("database.db", check_same_thread=False)
+cursor = conn.cursor()
+
+# Cria tabela se não existir
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    telegram_id INTEGER PRIMARY KEY,
+    email TEXT,
+    language TEXT,
+    paid INTEGER DEFAULT 0
+)
+""")
+conn.commit()
+
+# Adiciona coluna username se não existir
+cursor.execute("PRAGMA table_info(users)")
+columns = [col[1] for col in cursor.fetchall()]
+if "username" not in columns:
+    cursor.execute("ALTER TABLE users ADD COLUMN username TEXT")
+    conn.commit()
+
+# ---------- TEXTOS ----------
+TEXT = {
+    "welcome": "👋 Welcome!\n\nID: {id}\nUsername: {username}\nEmail: {email}\n\n💳 Purchase here: {link}",
+    "success": "🎉 Payment confirmed!\nHere is your VIP group access:\n{link}"
+}
+
+# ---------- HANDLER /START ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("🦶 Enter My Feet World 🦶", url=FANSLY_FEET_LINK)]
-    ]
+    telegram_id = update.effective_user.id
+    username = update.effective_user.username or "not available"
 
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Insert or update user
+    cursor.execute("""
+        INSERT OR IGNORE INTO users (telegram_id, username, language)
+        VALUES (?, ?, ?)
+    """, (telegram_id, username, "en"))
+    conn.commit()
 
-    await update.message.reply_text(
-        "Hey you… 😈\n\n"
-        "So you like feet? 🦶🔥\n\n"
-        "I have something very special waiting for you there…\n\n"
-        "Exclusive content\n"
-        "Custom requests 💦\n\n"
-        "Tap below and enjoy…",
-        reply_markup=reply_markup
-    )
+    # Update username if needed
+    cursor.execute("UPDATE users SET username=? WHERE telegram_id=?", (username, telegram_id))
+    conn.commit()
 
-async def feet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("🦶 Enter My Feet World 🦶", url=FANSLY_FEET_LINK)]
-    ]
-
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Get email if it exists
+    cursor.execute("SELECT email FROM users WHERE telegram_id=?", (telegram_id,))
+    result = cursor.fetchone()
+    email = result[0] if result and result[0] else "✉️ to be defined"
 
     await update.message.reply_text(
-        "You’re back for more? 😈🦶\n\n"
-        "Click below and step into my private world… 💋",
-        reply_markup=reply_markup
+        TEXT["welcome"].format(
+            id=telegram_id,
+            username=username,
+            email=email,
+            link=REDIRECT_LINK
+        )
     )
 
-def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+# ---------- TELEGRAM APP ----------
+tg_app = Application.builder().token(TOKEN).build()
+tg_app.add_handler(CommandHandler("start", start))
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("feet", feet))
+# ---------- WEBHOOK TELEGRAM ----------
+@app.route(f"/{TOKEN}", methods=["POST"])
+def telegram_webhook():
+    update = Update.de_json(request.get_json(force=True), tg_app.bot)
+    asyncio.run(tg_app.process_update(update))  # temporary loop
+    return "ok"
 
-    print("Bot running...")
-    app.run_polling()
+# ---------- WEBHOOK PAGAMENTO ----------
+@app.route("/webhook", methods=["POST"])
+def payment_webhook():
+    data = request.json
+    print("Webhook received:", data)
 
+    email = None
+
+    # Kiwify
+    if "customer" in data:
+        email = data["customer"].get("email")
+        if data.get("status") != "paid":
+            return "ignored"
+
+    # Gumroad
+    if data.get("event") == "sale":
+        email = data.get("email")
+
+    if not email:
+        return "ignored"
+
+    # Find user by email
+    cursor.execute("SELECT telegram_id FROM users WHERE email=?", (email,))
+    user = cursor.fetchone()
+    if not user:
+        return "user not found"
+
+    telegram_id = user[0]
+
+    async def send_invite():
+        invite = await tg_app.bot.create_chat_invite_link(
+            chat_id=VIP_GROUP_ID,
+            member_limit=1
+        )
+        await tg_app.bot.send_message(
+            chat_id=telegram_id,
+            text=TEXT["success"].format(link=invite.invite_link)
+        )
+
+    asyncio.run(send_invite())
+
+    # Mark as paid
+    cursor.execute("UPDATE users SET paid=1 WHERE telegram_id=?", (telegram_id,))
+    conn.commit()
+
+    return "ok"
+
+# ---------- RUN ----------
 if __name__ == "__main__":
-    main()
+    # Initialize bot correctly without warnings
+    asyncio.run(tg_app.initialize())
+    app.run(host="0.0.0.0", port=5000) .
+
+set webhook: import asyncio
+from telegram import Bot
+
+TOKEN = "8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
+WEBHOOK_URL = "https://telegram-bot-nt45.onrender.com/8533380179:AAEp0BVRQEzu0ygg0dUMOLQNFKlWZ51DofM"
+
+
+async def main():
+    bot = Bot(token=TOKEN)
+    await bot.set_webhook(WEBHOOK_URL)
+    print("Webhook configurado com sucesso!")
+
+asyncio.run(main()) .
