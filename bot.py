@@ -18,17 +18,20 @@ tg_app = Application.builder().token(TOKEN).build()
 # ---------- MESSAGE FUNCTION ----------
 async def send_feet_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("🦶 Enter My Feet World 🦶", url=FANSLY_FEET_LINK)]
+        [InlineKeyboardButton("✨ Unlock My Private Feet Room ✨", url=FANSLY_FEET_LINK)]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await update.message.reply_text(
-        "Oh… so you like feet? 🦶😈\n\n"
-        "I have something special waiting for you there…\n\n"
-        "🔥 Exclusive feet content\n"
-        "💦 Close-ups\n"
-        "👀 Custom requests\n\n"
-        "Tap below and enjoy…",
+        "So… you found your weakness? 🦶😈\n\n"
+        "Good.\n\n"
+        "Behind this button there’s a private space where I don't hold back...\n\n"
+        "•🔥Slow teasing\n"
+        "•💦Intimate close-ups\n"
+        "• Custom experiences just for you\n\n"
+        "Not everyone gets access.\n"
+        "Only the ones who dare to click.\n\n"
+        "Ready?",
         reply_markup=reply_markup
     )
 
