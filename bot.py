@@ -250,6 +250,48 @@ def stripe_webhook():
 
     return jsonify({"status": "success"}), 200
 
+
+@app.route("/cron/check_subscriptions", methods=["GET"])
+def cron_check_subscriptions():
+    conn = get_connection()
+    with conn.cursor() as cur:
+        # Seleciona todas as assinaturas ativas
+        cur.execute("SELECT telegram_id, stripe_subscription_id FROM subscribers WHERE status='active'")
+        active_subs = cur.fetchall()
+    conn.close()
+
+    for sub in active_subs:
+        telegram_id = sub['telegram_id']
+        subscription_id = sub['stripe_subscription_id']
+        print(f"Verificando assinatura {subscription_id} do usuário {telegram_id}")
+
+        # Aqui você pode integrar uma verificação real na Stripe API
+        # para ver se a assinatura ainda está ativa. Exemplo:
+        try:
+            subscription = stripe.Subscription.retrieve(subscription_id)
+            if subscription.status != "active":
+                # Atualiza DB se não estiver ativa
+                conn = get_connection()
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE subscribers SET status='inactive' WHERE stripe_subscription_id=%s", (subscription_id,))
+                    conn.commit()
+                conn.close()
+                
+                # Remove temporariamente do grupo (ban + unban)
+                asyncio.run_coroutine_threadsafe(
+                    tg_app.bot.ban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
+                ).result()
+                asyncio.run_coroutine_threadsafe(
+                    tg_app.bot.unban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
+                ).result()
+
+        except Exception as e:
+            print(f"Erro ao verificar assinatura {subscription_id}: {e}")
+
+    return "Cron job executed", 200
+
+
+
 # ---------- HOME ----------
 @app.route("/")
 def home():
