@@ -105,8 +105,8 @@ async def subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             payment_method_types=["card"],
             line_items=[{"price": price_id, "quantity": 1}],
             mode="subscription",
-            success_url=f"https://t.me/{query.from_user.username}",
-            cancel_url=f"https://t.me/{query.from_user.username}",
+            success_url="https://t.me/helenavarga_bot",
+            cancel_url="https://t.me/helenavarga_bot",
             metadata={"telegram_id": str(user_id)}
         )
 
@@ -172,8 +172,11 @@ def telegram_webhook():
 def stripe_webhook():
     payload = request.data
     sig_header = request.headers.get("Stripe-Signature")
+
     try:
-        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
     except ValueError:
         return "Invalid payload", 400
     except stripe.error.SignatureVerificationError:
@@ -184,25 +187,31 @@ def stripe_webhook():
         session = event["data"]["object"]
         telegram_id = session.get("metadata", {}).get("telegram_id")
         subscription_id = session.get("subscription")
+
         if not subscription_id:
-            session_full = stripe.checkout.Session.retrieve(session["id"], expand=["subscription"])
+            session_full = stripe.checkout.Session.retrieve(
+                session["id"], expand=["subscription"]
+            )
             subscription_id = session_full["subscription"]["id"]
 
-        # Update DB status to active
         conn = get_connection()
         with conn.cursor() as cur:
             cur.execute("""
-                UPDATE subscribers SET status='active', stripe_subscription_id=%s
+                UPDATE subscribers
+                SET status='active', stripe_subscription_id=%s
                 WHERE telegram_id=%s
             """, (subscription_id, telegram_id))
             conn.commit()
         conn.close()
 
-        # Send invite link
         if telegram_id:
             invite_link = asyncio.run_coroutine_threadsafe(
-                tg_app.bot.create_chat_invite_link(chat_id=GROUP_ID, member_limit=1), loop
+                tg_app.bot.create_chat_invite_link(
+                    chat_id=GROUP_ID, member_limit=1
+                ),
+                loop
             ).result()
+
             asyncio.run_coroutine_threadsafe(
                 tg_app.bot.send_message(
                     chat_id=int(telegram_id),
@@ -214,38 +223,80 @@ def stripe_webhook():
     # ---------------- SUBSCRIPTION CANCELED ----------------
     if event["type"] == "customer.subscription.deleted":
         subscription_id = event["data"]["object"]["id"]
+
         conn = get_connection()
         with conn.cursor() as cur:
-            cur.execute("SELECT telegram_id FROM subscribers WHERE stripe_subscription_id=%s", (subscription_id,))
+            cur.execute(
+                "SELECT telegram_id FROM subscribers WHERE stripe_subscription_id=%s",
+                (subscription_id,)
+            )
             result = cur.fetchone()
+
+            # ✅ Atualiza status
+            cur.execute(
+                "UPDATE subscribers SET status='inactive' WHERE stripe_subscription_id=%s",
+                (subscription_id,)
+            )
+            conn.commit()
         conn.close()
+
         if result:
-            telegram_id = result['telegram_id']
-            # Temporary remove from group (ban + unban for future re-entry)
+            telegram_id = result["telegram_id"]
+
             asyncio.run_coroutine_threadsafe(
-                tg_app.bot.ban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
+                tg_app.bot.ban_chat_member(
+                    chat_id=GROUP_ID,
+                    user_id=int(telegram_id)
+                ),
+                loop
             ).result()
+
             asyncio.run_coroutine_threadsafe(
-                tg_app.bot.unban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
+                tg_app.bot.unban_chat_member(
+                    chat_id=GROUP_ID,
+                    user_id=int(telegram_id)
+                ),
+                loop
             ).result()
 
     # ---------------- PAYMENT FAILED ----------------
     if event["type"] == "invoice.payment_failed":
         invoice = event["data"]["object"]
         subscription_id = invoice.get("subscription")
+
         conn = get_connection()
         with conn.cursor() as cur:
-            cur.execute("SELECT telegram_id FROM subscribers WHERE stripe_subscription_id=%s", (subscription_id,))
+            cur.execute(
+                "SELECT telegram_id FROM subscribers WHERE stripe_subscription_id=%s",
+                (subscription_id,)
+            )
             result = cur.fetchone()
+
+            # ✅ Atualiza status
+            cur.execute(
+                "UPDATE subscribers SET status='inactive' WHERE stripe_subscription_id=%s",
+                (subscription_id,)
+            )
+            conn.commit()
         conn.close()
+
         if result:
-            telegram_id = result['telegram_id']
-            # Temporary remove from group (ban + unban for future re-entry)
+            telegram_id = result["telegram_id"]
+
             asyncio.run_coroutine_threadsafe(
-                tg_app.bot.ban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
+                tg_app.bot.ban_chat_member(
+                    chat_id=GROUP_ID,
+                    user_id=int(telegram_id)
+                ),
+                loop
             ).result()
+
             asyncio.run_coroutine_threadsafe(
-                tg_app.bot.unban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
+                tg_app.bot.unban_chat_member(
+                    chat_id=GROUP_ID,
+                    user_id=int(telegram_id)
+                ),
+                loop
             ).result()
 
     return jsonify({"status": "success"}), 200
