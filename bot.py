@@ -10,7 +10,6 @@ import stripe
 
 # ---------- CONFIG ----------
 TOKEN = os.environ.get("BOT_TOKEN")
-FANSLY_FEET_LINK = "https://fansly.com/Viniz_"
 GROUP_ID = int(os.environ.get("GROUP_ID"))
 
 # Stripe
@@ -19,7 +18,6 @@ STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
 
 # Database
 DATABASE_URL = os.environ.get("DATABASE_URL")
-
 def get_connection():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
 
@@ -30,7 +28,7 @@ def create_table():
     cur.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
             id SERIAL PRIMARY KEY,
-            telegram_id BIGINT,
+            telegram_id BIGINT UNIQUE,
             stripe_customer_id TEXT,
             stripe_subscription_id TEXT UNIQUE,
             status TEXT
@@ -49,16 +47,12 @@ app = Flask(__name__)
 tg_app = Application.builder().token(TOKEN).build()
 
 # ---------- MESSAGES ----------
-async def send_feet_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton("✨ Unlock My Private Feet Room ✨", url=FANSLY_FEET_LINK)]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+async def start_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Welcome message for /start"""
     await update.message.reply_text(
-        "So… you found your weakness? 🦶😈\n\n"
-        "Good.\n\n"
-        "Behind this button there’s a private space where I don't hold back...\n\n"
-        "•🔥Slow teasing\n•💦Intimate close-ups\n•Custom experiences just for you\n\n"
-        "Not everyone gets access.\nOnly the ones who dare to click.\n\nReady?",
-        reply_markup=reply_markup
+        "👋 Welcome!\n\n"
+        "To get access, you need to subscribe first.\n"
+        "Type /subscribe to choose your subscription plan and get access."
     )
 
 async def get_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,7 +69,10 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Choose your subscription plan:", reply_markup=reply_markup)
+    await update.message.reply_text(
+        "Choose your subscription plan to get access:",
+        reply_markup=reply_markup
+    )
 
 # ---------- SUBSCRIBE CALLBACK ----------
 async def subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -83,14 +80,24 @@ async def subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     user_id = query.from_user.id
 
-    # Map plan to Stripe price IDs (replace with your actual Stripe price IDs)
+    # Map plan to Stripe price IDs
     price_map = {
-       "sub_7": "price_1T5vMKFWiapY4wbBG3vCwaIz",   # Replace with your Stripe 7-day price ID
-       "sub_30": "price_1T5vLYFWiapY4wbBj4W33Wh7"
+        "sub_7": "price_1T5vMKFWiapY4wbBG3vCwaIz",
+        "sub_30": "price_1T5vLYFWiapY4wbBj4W33Wh7"
     }
     price_id = price_map.get(query.data)
     if not price_id:
         await query.edit_message_text("Invalid plan.")
+        return
+
+    # Check if user already has an active subscription
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute("SELECT status FROM subscribers WHERE telegram_id=%s", (user_id,))
+        existing = cur.fetchone()
+    conn.close()
+    if existing and existing['status'] == 'active':
+        await query.edit_message_text("You already have an active subscription ✅")
         return
 
     try:
@@ -103,15 +110,18 @@ async def subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             metadata={"telegram_id": str(user_id)}
         )
 
-        # Save subscription in DB
+        # Save subscription as pending
         customer_id = session["customer"]
-        subscription_id = session["subscription"]
+        subscription_id = session.get("subscription")
         conn = get_connection()
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO subscribers (telegram_id, stripe_customer_id, stripe_subscription_id, status)
                 VALUES (%s, %s, %s, %s)
-                ON CONFLICT (stripe_subscription_id) DO NOTHING
+                ON CONFLICT (telegram_id) DO UPDATE
+                SET stripe_customer_id = EXCLUDED.stripe_customer_id,
+                    stripe_subscription_id = EXCLUDED.stripe_subscription_id,
+                    status = 'pending'
             """, (user_id, customer_id, subscription_id, 'pending'))
             conn.commit()
         conn.close()
@@ -120,11 +130,24 @@ async def subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         await query.edit_message_text(f"Error creating checkout session: {e}")
 
+# ---------- STATUS COMMAND ----------
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute("SELECT status FROM subscribers WHERE telegram_id=%s", (user_id,))
+        result = cur.fetchone()
+    conn.close()
+    if result:
+        await update.message.reply_text(f"Your subscription status: {result['status']}")
+    else:
+        await update.message.reply_text("You have no subscription. Type /subscribe to start one.")
+
 # ---------- REGISTER HANDLERS ----------
-tg_app.add_handler(CommandHandler("start", send_feet_link))
-tg_app.add_handler(CommandHandler("feet", send_feet_link))
+tg_app.add_handler(CommandHandler("start", start_message))
 tg_app.add_handler(CommandHandler("id", get_chat_id))
 tg_app.add_handler(CommandHandler("subscribe", subscribe))
+tg_app.add_handler(CommandHandler("status", status))
 tg_app.add_handler(CallbackQueryHandler(subscribe_callback, pattern="^sub_"))
 
 # ---------- EVENT LOOP ----------
@@ -156,34 +179,39 @@ def stripe_webhook():
     except stripe.error.SignatureVerificationError:
         return "Invalid signature", 400
 
-    # CHECKOUT COMPLETED
+    # ---------------- CHECKOUT COMPLETED ----------------
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         telegram_id = session.get("metadata", {}).get("telegram_id")
-        customer_id = session.get("customer")
         subscription_id = session.get("subscription")
+        if not subscription_id:
+            session_full = stripe.checkout.Session.retrieve(session["id"], expand=["subscription"])
+            subscription_id = session_full["subscription"]["id"]
 
-        # Update DB status
+        # Update DB status to active
         conn = get_connection()
         with conn.cursor() as cur:
             cur.execute("""
-                UPDATE subscribers SET status='active'
-                WHERE stripe_subscription_id=%s
-            """, (subscription_id,))
+                UPDATE subscribers SET status='active', stripe_subscription_id=%s
+                WHERE telegram_id=%s
+            """, (subscription_id, telegram_id))
             conn.commit()
         conn.close()
 
+        # Send invite link
         if telegram_id:
             invite_link = asyncio.run_coroutine_threadsafe(
                 tg_app.bot.create_chat_invite_link(chat_id=GROUP_ID, member_limit=1), loop
             ).result()
             asyncio.run_coroutine_threadsafe(
-                tg_app.bot.send_message(chat_id=int(telegram_id),
-                                        text=f"Payment confirmed ✅\nHere is your access link:\n{invite_link.invite_link}"),
+                tg_app.bot.send_message(
+                    chat_id=int(telegram_id),
+                    text=f"Payment confirmed ✅\nHere is your access link:\n{invite_link.invite_link}"
+                ),
                 loop
             )
 
-    # SUBSCRIPTION CANCELED
+    # ---------------- SUBSCRIPTION CANCELED ----------------
     if event["type"] == "customer.subscription.deleted":
         subscription_id = event["data"]["object"]["id"]
         conn = get_connection()
@@ -191,13 +219,34 @@ def stripe_webhook():
             cur.execute("SELECT telegram_id FROM subscribers WHERE stripe_subscription_id=%s", (subscription_id,))
             result = cur.fetchone()
         conn.close()
-
         if result:
             telegram_id = result['telegram_id']
+            # Temporary remove from group (ban + unban for future re-entry)
             asyncio.run_coroutine_threadsafe(
-                tg_app.bot.ban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)),
-                loop
-            )
+                tg_app.bot.ban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
+            ).result()
+            asyncio.run_coroutine_threadsafe(
+                tg_app.bot.unban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
+            ).result()
+
+    # ---------------- PAYMENT FAILED ----------------
+    if event["type"] == "invoice.payment_failed":
+        invoice = event["data"]["object"]
+        subscription_id = invoice.get("subscription")
+        conn = get_connection()
+        with conn.cursor() as cur:
+            cur.execute("SELECT telegram_id FROM subscribers WHERE stripe_subscription_id=%s", (subscription_id,))
+            result = cur.fetchone()
+        conn.close()
+        if result:
+            telegram_id = result['telegram_id']
+            # Temporary remove from group (ban + unban for future re-entry)
+            asyncio.run_coroutine_threadsafe(
+                tg_app.bot.ban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
+            ).result()
+            asyncio.run_coroutine_threadsafe(
+                tg_app.bot.unban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
+            ).result()
 
     return jsonify({"status": "success"}), 200
 
