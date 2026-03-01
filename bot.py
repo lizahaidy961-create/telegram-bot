@@ -383,10 +383,10 @@ def cron_check_subscriptions():
                     tg_app.bot.unban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
                 ).result()
 
-        except Exception as e:
-            print(f"Erro ao verificar assinatura {subscription_id}: {e}")
+        except Exception:
+            print(f"Erro ao verificar assinatura {subscription_id}")
 
-    return "Cron job executed", 200
+    return "OK", 200
 
 
 # ---------- HOME ----------
