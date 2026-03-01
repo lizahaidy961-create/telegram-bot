@@ -7,6 +7,7 @@ from flask import Flask, request, jsonify
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 import stripe
+from datetime import datetime, timedelta 
 
 # ---------- CONFIG ----------
 TOKEN = os.environ.get("BOT_TOKEN")
@@ -143,12 +144,54 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("You have no subscription. Type /subscribe to start one.")
 
+
+   # ---------- GETLINK COMMAND ----------
+from datetime import datetime, timedelta
+
+async def get_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.message.from_user.id
+
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM subscribers WHERE telegram_id=%s",
+            (user_id,)
+        )
+        result = cur.fetchone()
+    conn.close()
+
+    if not result or result["status"] != "active":
+        await update.message.reply_text(
+            "❌ You don't have an active subscription."
+        )
+        return
+
+    try:
+        expire_date = datetime.utcnow() + timedelta(minutes=10)
+
+        invite_link = await tg_app.bot.create_chat_invite_link(
+            chat_id=GROUP_ID,
+            member_limit=1,
+            expire_date=expire_date
+        )
+
+        await update.message.reply_text(
+            f"✅ Here is your private access link:\n{invite_link.invite_link}"
+        )
+
+    except Exception as e:
+        await update.message.reply_text(
+            "⚠️ Error generating link. Please contact support."
+        )
+        print("Invite link error:", e)
+
 # ---------- REGISTER HANDLERS ----------
 tg_app.add_handler(CommandHandler("start", start_message))
 tg_app.add_handler(CommandHandler("id", get_chat_id))
 tg_app.add_handler(CommandHandler("subscribe", subscribe))
 tg_app.add_handler(CommandHandler("status", status))
 tg_app.add_handler(CallbackQueryHandler(subscribe_callback, pattern="^sub_"))
+tg_app.add_handler(CommandHandler("getlink", get_link))
 
 # ---------- EVENT LOOP ----------
 loop = asyncio.new_event_loop()
