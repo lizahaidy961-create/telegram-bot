@@ -35,9 +35,21 @@ async def send_feet_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+# ---------- GET CHAT ID ----------
+async def get_chat_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    chat_type = update.effective_chat.type
+
+    await update.message.reply_text(
+        f"📌 Chat ID:\n\n"
+        f"ID: {chat_id}\n"
+        f"Type: {chat_type}"
+    )
+
 # ---------- HANDLERS ----------
 tg_app.add_handler(CommandHandler("start", send_feet_link))
 tg_app.add_handler(CommandHandler("feet", send_feet_link))
+tg_app.add_handler(CommandHandler("id", get_chat_id))
 
 # ---------- EVENT LOOP ----------
 loop = asyncio.new_event_loop()
