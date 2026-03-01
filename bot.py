@@ -82,9 +82,9 @@ async def subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     # Map plan to Stripe price IDs
     price_map = {
-        "sub_7": "price_1T5vMKFWiapY4wbBG3vCwaIz",
-        "sub_30": "price_1T5vLYFWiapY4wbBj4W33Wh7"
-    }
+    "sub_7": os.environ.get("PRICE_ID_7"),
+    "sub_30": os.environ.get("PRICE_ID_30")
+}
     price_id = price_map.get(query.data)
     if not price_id:
         await query.edit_message_text("Invalid plan.")
