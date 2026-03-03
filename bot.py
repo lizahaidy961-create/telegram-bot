@@ -47,25 +47,14 @@ app = Flask(__name__)
 # ---------- BOT ----------
 tg_app = Application.builder().token(TOKEN).build()
 
-# ---------- START BOT (GUNICORN SAFE) ----------
-loop = asyncio.new_event_loop()
+async def init_bot():
+    await tg_app.initialize()
+    await tg_app.start()
+    await tg_app.bot.set_webhook(
+        f"https://telegram-bot-ncgp.onrender.com/{TOKEN}"
+    )
 
-def start_bot():
-    def run():
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(tg_app.initialize())
-        loop.run_until_complete(tg_app.start())
-        loop.run_until_complete(
-            tg_app.bot.set_webhook(
-                f"https://telegram-bot-ncgp.onrender.com/{TOKEN}"
-            )
-        )
-        loop.run_forever()
-
-    threading.Thread(target=run, daemon=True).start()
-
-# inicia imediatamente quando o worker sobe
-start_bot()
+asyncio.get_event_loop().create_task(init_bot())
 
 # ---------- MESSAGES ----------
 async def start_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -219,7 +208,7 @@ tg_app.add_handler(CommandHandler("getlink", get_link))
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    asyncio.run_coroutine_threadsafe(tg_app.process_update(update), loop)
+    asyncio.create_task(tg_app.process_update(update))
     return "ok", 200
 
 # ---------- STRIPE WEBHOOK ----------
