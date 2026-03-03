@@ -205,10 +205,8 @@ def run_bot():
     )
     loop.run_forever()
 
-@app.before_first_request
-def start_bot():
-    threading.Thread(target=run_bot, daemon=True).start()
-
+# Start bot thread when module loads (Gunicorn worker)
+threading.Thread(target=run_bot, daemon=True).start()
 # ---------- TELEGRAM WEBHOOK ----------
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
