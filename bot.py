@@ -47,6 +47,26 @@ app = Flask(__name__)
 # ---------- BOT ----------
 tg_app = Application.builder().token(TOKEN).build()
 
+# ---------- START BOT (GUNICORN SAFE) ----------
+loop = asyncio.new_event_loop()
+
+def start_bot():
+    def run():
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(tg_app.initialize())
+        loop.run_until_complete(tg_app.start())
+        loop.run_until_complete(
+            tg_app.bot.set_webhook(
+                f"https://telegram-bot-ncgp.onrender.com/{TOKEN}"
+            )
+        )
+        loop.run_forever()
+
+    threading.Thread(target=run, daemon=True).start()
+
+# inicia imediatamente quando o worker sobe
+start_bot()
+
 # ---------- MESSAGES ----------
 async def start_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Welcome message for /start"""
@@ -193,15 +213,7 @@ tg_app.add_handler(CommandHandler("status", status))
 tg_app.add_handler(CallbackQueryHandler(subscribe_callback, pattern="^sub_"))
 tg_app.add_handler(CommandHandler("getlink", get_link))
 
-# ---------- EVENT LOOP ----------
-loop = asyncio.new_event_loop()
-def run_bot():
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(tg_app.initialize())
-    loop.run_until_complete(tg_app.start())
-    loop.run_until_complete(tg_app.bot.set_webhook(f"https://telegram-bot-ncgp.onrender.com/{TOKEN}"))
-    loop.run_forever()
-threading.Thread(target=run_bot, daemon=True).start()
+
 
 # ---------- TELEGRAM WEBHOOK ----------
 @app.route(f"/{TOKEN}", methods=["POST"])
