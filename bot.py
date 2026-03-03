@@ -201,7 +201,9 @@ def run_bot():
     loop.run_until_complete(tg_app.start())
     loop.run_until_complete(tg_app.bot.set_webhook(f"https://telegram-bot-ncgp.onrender.com/{TOKEN}"))
     loop.run_forever()
-threading.Thread(target=run_bot, daemon=True).start()
+ @app.before_first_request
+def start_bot():
+    threading.Thread(target=run_bot, daemon=True).start()
 
 # ---------- TELEGRAM WEBHOOK ----------
 @app.route(f"/{TOKEN}", methods=["POST"])
