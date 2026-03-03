@@ -207,12 +207,15 @@ async def start_bot():
     await asyncio.Event().wait()
 
 threading.Thread(target=run_bot, daemon=True).start()
+
+
 # ---------- TELEGRAM WEBHOOK ----------
 @app.route(f"/{TOKEN}", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), tg_app.bot)
-    asyncio.run_coroutine_threadsafe(tg_app.process_update(update), loop)
+    asyncio.run(tg_app.process_update(update))
     return "ok", 200
+
 
 # ---------- STRIPE WEBHOOK ----------
 @app.route("/stripe-webhook", methods=["POST"])
@@ -229,7 +232,7 @@ def stripe_webhook():
     except stripe.error.SignatureVerificationError:
         return "Invalid signature", 400
 
-    # ---------------- CHECKOUT COMPLETED ----------------
+    # -------- CHECKOUT COMPLETED --------
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         telegram_id = session.get("metadata", {}).get("telegram_id")
@@ -252,22 +255,21 @@ def stripe_webhook():
         conn.close()
 
         if telegram_id:
-            invite_link = asyncio.run_coroutine_threadsafe(
+            invite_link = asyncio.run(
                 tg_app.bot.create_chat_invite_link(
-                    chat_id=GROUP_ID, member_limit=1
-                ),
-                loop
-            ).result()
+                    chat_id=GROUP_ID,
+                    member_limit=1
+                )
+            )
 
-            asyncio.run_coroutine_threadsafe(
+            asyncio.run(
                 tg_app.bot.send_message(
                     chat_id=int(telegram_id),
                     text=f"Payment confirmed ✅\nHere is your access link:\n{invite_link.invite_link}"
-                ),
-                loop
+                )
             )
 
-    # ---------------- SUBSCRIPTION CANCELED ----------------
+    # -------- SUBSCRIPTION CANCELED --------
     if event["type"] == "customer.subscription.deleted":
         subscription_id = event["data"]["object"]["id"]
 
@@ -279,7 +281,6 @@ def stripe_webhook():
             )
             result = cur.fetchone()
 
-            # ✅ Atualiza status
             cur.execute(
                 "UPDATE subscribers SET status='inactive' WHERE stripe_subscription_id=%s",
                 (subscription_id,)
@@ -290,23 +291,21 @@ def stripe_webhook():
         if result:
             telegram_id = result["telegram_id"]
 
-            asyncio.run_coroutine_threadsafe(
+            asyncio.run(
                 tg_app.bot.ban_chat_member(
                     chat_id=GROUP_ID,
                     user_id=int(telegram_id)
-                ),
-                loop
-            ).result()
+                )
+            )
 
-            asyncio.run_coroutine_threadsafe(
+            asyncio.run(
                 tg_app.bot.unban_chat_member(
                     chat_id=GROUP_ID,
                     user_id=int(telegram_id)
-                ),
-                loop
-            ).result()
+                )
+            )
 
-    # ---------------- PAYMENT FAILED ----------------
+    # -------- PAYMENT FAILED --------
     if event["type"] == "invoice.payment_failed":
         invoice = event["data"]["object"]
         subscription_id = invoice.get("subscription")
@@ -319,7 +318,6 @@ def stripe_webhook():
             )
             result = cur.fetchone()
 
-            # ✅ Atualiza status
             cur.execute(
                 "UPDATE subscribers SET status='inactive' WHERE stripe_subscription_id=%s",
                 (subscription_id,)
@@ -330,25 +328,24 @@ def stripe_webhook():
         if result:
             telegram_id = result["telegram_id"]
 
-            asyncio.run_coroutine_threadsafe(
+            asyncio.run(
                 tg_app.bot.ban_chat_member(
                     chat_id=GROUP_ID,
                     user_id=int(telegram_id)
-                ),
-                loop
-            ).result()
+                )
+            )
 
-            asyncio.run_coroutine_threadsafe(
+            asyncio.run(
                 tg_app.bot.unban_chat_member(
                     chat_id=GROUP_ID,
                     user_id=int(telegram_id)
-                ),
-                loop
-            ).result()
+                )
+            )
 
     return jsonify({"status": "success"}), 200
 
 
+# ---------- CRON CHECK ----------
 @app.route("/cron/check_subscriptions", methods=["GET"])
 def cron_check_subscriptions():
     secret = request.args.get("secret")
@@ -358,7 +355,11 @@ def cron_check_subscriptions():
 
     conn = get_connection()
     with conn.cursor() as cur:
-        cur.execute("SELECT telegram_id, stripe_subscription_id FROM subscribers WHERE status='active'")
+        cur.execute("""
+            SELECT telegram_id, stripe_subscription_id
+            FROM subscribers
+            WHERE status='active'
+        """)
         active_subs = cur.fetchall()
     conn.close()
 
@@ -379,13 +380,19 @@ def cron_check_subscriptions():
                     conn.commit()
                 conn.close()
 
-                asyncio.run_coroutine_threadsafe(
-                    tg_app.bot.ban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
-                ).result()
+                asyncio.run(
+                    tg_app.bot.ban_chat_member(
+                        chat_id=GROUP_ID,
+                        user_id=int(telegram_id)
+                    )
+                )
 
-                asyncio.run_coroutine_threadsafe(
-                    tg_app.bot.unban_chat_member(chat_id=GROUP_ID, user_id=int(telegram_id)), loop
-                ).result()
+                asyncio.run(
+                    tg_app.bot.unban_chat_member(
+                        chat_id=GROUP_ID,
+                        user_id=int(telegram_id)
+                    )
+                )
 
         except Exception:
             print(f"Erro ao verificar assinatura {subscription_id}")
