@@ -194,9 +194,8 @@ tg_app.add_handler(CallbackQueryHandler(subscribe_callback, pattern="^sub_"))
 tg_app.add_handler(CommandHandler("getlink", get_link))
 
 # ---------- EVENT LOOP ----------
-loop = asyncio.new_event_loop()
 
-ddef run_bot():
+def run_bot():
     asyncio.run(start_bot())
 
 async def start_bot():
@@ -205,7 +204,7 @@ async def start_bot():
     await tg_app.bot.set_webhook(
         f"https://telegram-bot-ncgp.onrender.com/{TOKEN}"
     )
-    await asyncio.Event().wait()  # keep running
+    await asyncio.Event().wait()
 
 threading.Thread(target=run_bot, daemon=True).start()
 # ---------- TELEGRAM WEBHOOK ----------
