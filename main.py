@@ -20,11 +20,12 @@ async def startup():
     await tg_app.initialize()
     await tg_app.start()
     await tg_app.bot.set_webhook(
-        f"https://telegram-bot-ncgp.onrender.com/{TOKEN}"
-    )
+    f"https://telegram-bot-ncgp.onrender.com/telegram/{TOKEN}"
+)
+         
 
 # -------- TELEGRAM WEBHOOK --------
-@app.post("/{token}")
+@app.post("/telegram/{token}")
 async def telegram_webhook(token: str, request: Request):
     if token != TOKEN:
         raise HTTPException(status_code=403)
