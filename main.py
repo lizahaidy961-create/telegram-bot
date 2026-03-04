@@ -8,7 +8,6 @@ from database import create_table, get_connection
 TOKEN = os.environ.get("BOT_TOKEN")
 GROUP_ID = int(os.environ.get("GROUP_ID"))
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET")
-CRON_SECRET = os.environ.get("CRON_SECRET")
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
@@ -51,6 +50,7 @@ async def stripe_webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400)
 
+    # -------- PAYMENT SUCCESS --------
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         telegram_id = session["metadata"]["telegram_id"]
@@ -77,6 +77,7 @@ async def stripe_webhook(request: Request):
             text=f"Payment confirmed ✅\n{invite_link.invite_link}"
         )
 
+    # -------- PAYMENT FAILED / CANCELED --------
     if event["type"] in ["customer.subscription.deleted", "invoice.payment_failed"]:
         subscription_id = event["data"]["object"].get("subscription") \
             or event["data"]["object"]["id"]
@@ -105,56 +106,12 @@ async def stripe_webhook(request: Request):
                 chat_id=GROUP_ID,
                 user_id=int(telegram_id)
             )
-
             await tg_app.bot.unban_chat_member(
                 chat_id=GROUP_ID,
                 user_id=int(telegram_id)
             )
 
     return {"success": True}
-
-# -------- CRON --------
-
-@app.get("/cron/check_subscriptions")
-async def cron(secret: str):
-    if secret != CRON_SECRET:
-        raise HTTPException(status_code=403)
-
-    conn = get_connection()
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT telegram_id, stripe_subscription_id
-            FROM subscribers
-            WHERE status='active'
-        """)
-        subs = cur.fetchall()
-    conn.close()
-
-    for sub in subs:
-        subscription = stripe.Subscription.retrieve(sub["stripe_subscription_id"])
-
-        if subscription.status != "active":
-            conn = get_connection()
-            with conn.cursor() as cur:
-                cur.execute("""
-                    UPDATE subscribers
-                    SET status='inactive'
-                    WHERE stripe_subscription_id=%s
-                """, (sub["stripe_subscription_id"],))
-                conn.commit()
-            conn.close()
-
-            await tg_app.bot.ban_chat_member(
-                chat_id=GROUP_ID,
-                user_id=int(sub["telegram_id"])
-            )
-
-            await tg_app.bot.unban_chat_member(
-                chat_id=GROUP_ID,
-                user_id=int(sub["telegram_id"])
-            )
-
-    return {"status": "ok"}
 
 # -------- HOME --------
 
