@@ -10,6 +10,8 @@ def get_connection():
 def create_table():
     conn = get_connection()
     cur = conn.cursor()
+
+    # tabela de assinantes
     cur.execute("""
         CREATE TABLE IF NOT EXISTS subscribers (
             id SERIAL PRIMARY KEY,
@@ -19,6 +21,15 @@ def create_table():
             status TEXT
         );
     """)
+
+    # tabela para idempotência dos webhooks
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS stripe_events (
+            event_id TEXT PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT NOW()
+        );
+    """)
+
     conn.commit()
     cur.close()
     conn.close()
