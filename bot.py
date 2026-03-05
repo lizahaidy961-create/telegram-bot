@@ -130,9 +130,12 @@ async def getlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
 
+    expire = datetime.utcnow() + timedelta(minutes=10)
+
     invite_link = await context.bot.create_chat_invite_link(
-        chat_id=GROUP_ID,
-        member_limit=1
+    chat_id=GROUP_ID,
+    member_limit=1,
+    expire_date=expire
     )
 
     with conn.cursor() as cur:
