@@ -18,7 +18,9 @@ def create_table():
             telegram_id BIGINT UNIQUE,
             stripe_customer_id TEXT,
             stripe_subscription_id TEXT UNIQUE,
-            status TEXT
+            status TEXT,
+            link_count INTEGER DEFAULT 0,
+            last_link_date DATE
         );
     """)
 
