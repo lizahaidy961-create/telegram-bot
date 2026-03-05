@@ -81,27 +81,76 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("No subscription found.")
 
 async def getlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     user_id = update.message.from_user.id
+    today = datetime.utcnow().date()
 
     conn = get_connection()
+
     with conn.cursor() as cur:
-        cur.execute("SELECT status FROM subscribers WHERE telegram_id=%s", (user_id,))
+
+        cur.execute("""
+            SELECT status, link_count, last_link_date
+            FROM subscribers
+            WHERE telegram_id=%s
+        """, (user_id,))
+
         result = cur.fetchone()
-    conn.close()
 
-    if not result or result["status"] != "active":
-        await update.message.reply_text("❌ No active subscription.")
-        return
+        if not result or result["status"] != "active":
+            conn.close()
+            await update.message.reply_text("❌ No active subscription.")
+            return
 
-    expire_date = datetime.utcnow() + timedelta(minutes=10)
+        link_count = result["link_count"] or 0
+        last_date = result["last_link_date"]
 
-    invite_link = await tg_app.bot.create_chat_invite_link(
+        # reset contador se mudou o dia
+        if last_date != today:
+            link_count = 0
+
+        if link_count >= 3:
+            conn.close()
+            await update.message.reply_text(
+                "⚠️ Daily limit reached (3 links per day)."
+            )
+            return
+
+    # verificar se já está no grupo
+    try:
+        member = await context.bot.get_chat_member(GROUP_ID, user_id)
+
+        if member.status in ["member", "administrator", "creator"]:
+            conn.close()
+            await update.message.reply_text(
+                "✅ You are already inside the group."
+            )
+            return
+
+    except:
+        pass
+
+    invite_link = await context.bot.create_chat_invite_link(
         chat_id=GROUP_ID,
-        member_limit=1,
-        expire_date=expire_date
+        member_limit=1
     )
 
-    await update.message.reply_text(invite_link.invite_link)
+    with conn.cursor() as cur:
+
+        cur.execute("""
+            UPDATE subscribers
+            SET link_count=%s,
+                last_link_date=%s
+            WHERE telegram_id=%s
+        """, (link_count + 1, today, user_id))
+
+        conn.commit()
+
+    conn.close()
+
+    await update.message.reply_text(
+        f"🔑 Your access link:\n{invite_link.invite_link}"
+    )
 
 # -------- REGISTER --------
 
