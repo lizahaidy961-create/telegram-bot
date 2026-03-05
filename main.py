@@ -48,7 +48,30 @@ async def stripe_webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400)
 
-    # ✅ PAGAMENTO APROVADO
+    # -------- IDEMPOTÊNCIA --------
+    event_id = event["id"]
+
+    conn = get_connection()
+    with conn.cursor() as cur:
+
+        cur.execute(
+            "SELECT 1 FROM stripe_events WHERE event_id=%s",
+            (event_id,)
+        )
+
+        if cur.fetchone():
+            conn.close()
+            return {"success": True}
+
+        cur.execute(
+            "INSERT INTO stripe_events (event_id) VALUES (%s)",
+            (event_id,)
+        )
+        conn.commit()
+
+    conn.close()
+
+    # -------- PAGAMENTO APROVADO --------
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         telegram_id = session["metadata"]["telegram_id"]
@@ -75,11 +98,12 @@ async def stripe_webhook(request: Request):
             text=f"Payment confirmed ✅\n{invite_link.invite_link}"
         )
 
-    # ❌ CANCELAMENTO OU FALHA DE PAGAMENTO
+    # -------- CANCELAMENTO / FALHA --------
     if event["type"] in [
         "customer.subscription.deleted",
         "invoice.payment_failed"
     ]:
+
         subscription_id = (
             event["data"]["object"].get("subscription")
             or event["data"]["object"]["id"]
@@ -87,11 +111,13 @@ async def stripe_webhook(request: Request):
 
         conn = get_connection()
         with conn.cursor() as cur:
+
             cur.execute("""
                 SELECT telegram_id
                 FROM subscribers
                 WHERE stripe_subscription_id=%s
             """, (subscription_id,))
+
             result = cur.fetchone()
 
             cur.execute("""
@@ -100,6 +126,7 @@ async def stripe_webhook(request: Request):
                 WHERE stripe_subscription_id=%s
             """, (subscription_id,))
             conn.commit()
+
         conn.close()
 
         if result:
