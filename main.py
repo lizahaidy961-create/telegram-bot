@@ -4,6 +4,7 @@ from fastapi import FastAPI, Request, HTTPException
 from telegram import Update
 from bot import tg_app
 from database import create_table, get_connection
+from datetime import datetime, timedelta
 
 TOKEN = os.environ.get("BOT_TOKEN")
 GROUP_ID = int(os.environ.get("GROUP_ID"))
@@ -31,8 +32,13 @@ async def telegram_webhook(token: str, request: Request):
         raise HTTPException(status_code=403)
 
     data = await request.json()
+
+    if not data:
+        raise HTTPException(status_code=400)
+
     update = Update.de_json(data, tg_app.bot)
     await tg_app.process_update(update)
+
     return {"ok": True}
 
 # -------- STRIPE WEBHOOK --------
@@ -74,17 +80,26 @@ async def stripe_webhook(request: Request):
     # -------- PAGAMENTO APROVADO --------
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        telegram_id = session["metadata"]["telegram_id"]
-        subscription_id = session["subscription"]
+        metadata = session.get("metadata", {})
+        telegram_id = metadata.get("telegram_id")
+        if not telegram_id:
+           return {"success": True}
+
+        subscription_id = session.get("subscription")
+        customer_id = session.get("customer")
+
+        if not subscription_id or not customer_id:
+            return {"success": True}
 
         conn = get_connection()
         with conn.cursor() as cur:
             cur.execute("""
                 UPDATE subscribers
                 SET status='active',
+                   stripe_customer_id=%s,
                     stripe_subscription_id=%s
                 WHERE telegram_id=%s
-            """, (subscription_id, telegram_id))
+            """, (customer_id, subscription_id, telegram_id))
             conn.commit()
         conn.close()
 
