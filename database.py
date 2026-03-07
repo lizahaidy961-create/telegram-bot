@@ -20,7 +20,8 @@ def create_table():
             stripe_subscription_id TEXT UNIQUE,
             status TEXT,
             link_count INTEGER DEFAULT 0,
-            last_link_date DATE
+            last_link_date DATE,
+            created_at TIMESTAMP DEFAULT NOW()
         );
     """)
 
