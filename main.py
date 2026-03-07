@@ -90,7 +90,8 @@ async def stripe_webhook(request: Request):
 
         invite_link = await tg_app.bot.create_chat_invite_link(
             chat_id=GROUP_ID,
-            member_limit=1
+            member_limit=1,
+             expire_date=datetime.utcnow() + timedelta(minutes=10)
         )
 
         await tg_app.bot.send_message(
