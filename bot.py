@@ -34,6 +34,22 @@ async def subscribe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     user_id = query.from_user.id
 
+    # -------- BLOQUEAR DUPLA ASSINATURA --------
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT status FROM subscribers WHERE telegram_id=%s",
+            (user_id,)
+        )
+        result = cur.fetchone()
+    conn.close()
+
+    if result and result["status"] in ["active", "pending"]:
+        await query.edit_message_text(
+            "✅ You already have an active or pending subscription."
+        )
+        return
+
     price_map = {
         "sub_7": os.environ.get("PRICE_ID_7"),
         "sub_30": os.environ.get("PRICE_ID_30")
