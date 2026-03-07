@@ -7,7 +7,6 @@ from database import get_connection
 
 TOKEN = os.environ.get("BOT_TOKEN")
 GROUP_ID = int(os.environ.get("GROUP_ID"))
-ADMIN_ID = int(os.environ.get("ADMIN_ID"))
 
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 
@@ -97,58 +96,6 @@ async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("No subscription found.")
 
-# -------- ADMIN --------
-
-async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if update.message.from_user.id != ADMIN_ID:
-        await update.message.reply_text("Unauthorized")
-        return
-
-    conn = get_connection()
-
-    with conn.cursor() as cur:
-
-        cur.execute("SELECT COUNT(*) FROM subscribers")
-        total = cur.fetchone()["count"]
-
-        cur.execute("SELECT COUNT(*) FROM subscribers WHERE status='active'")
-        active = cur.fetchone()["count"]
-
-        cur.execute("SELECT COUNT(*) FROM subscribers WHERE status='pending'")
-        pending = cur.fetchone()["count"]
-
-        cur.execute("SELECT COUNT(*) FROM subscribers WHERE status='inactive'")
-        inactive = cur.fetchone()["count"]
-
-        cur.execute("""
-        SELECT COUNT(*) FROM subscribers
-        WHERE created_at >= CURRENT_DATE
-        """)
-        new_today = cur.fetchone()["count"]
-
-        cur.execute("""
-        SELECT COUNT(*) FROM subscribers
-        WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'
-        """)
-        new_week = cur.fetchone()["count"]
-
-    conn.close()
-
-    await update.message.reply_text(f"""
-📊 BOT DASHBOARD
-
-Users
-Total: {total}
-Active: {active}
-Pending: {pending}
-Inactive: {inactive}
-
-Growth
-New today: {new_today}
-New this week: {new_week}
-""")
-
 async def getlink(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = update.message.from_user.id
@@ -231,4 +178,3 @@ tg_app.add_handler(CommandHandler("subscribe", subscribe))
 tg_app.add_handler(CommandHandler("status", status))
 tg_app.add_handler(CommandHandler("getlink", getlink))
 tg_app.add_handler(CallbackQueryHandler(subscribe_callback, pattern="^sub_"))
-tg_app.add_handler(CommandHandler("admin", admin))
